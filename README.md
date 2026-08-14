@@ -1,6 +1,8 @@
 # Token Widget
 
-A macOS desktop widget that charts what you spend on LLM coding agents, read straight from the transcripts they already write to disk. No API keys, no account linking, nothing leaves your machine.
+A macOS desktop widget that charts what you spend on LLM coding agents, read straight from the transcripts they already write to disk. No API keys, no account linking. Reads Claude Code and Codex.
+
+The only network request it makes is a once-a-day fetch of OpenRouter's public price list, which carries no identifier and nothing about your usage. Everything else stays on the machine.
 
 ![The Token Widget app showing a week of usage](docs/screenshot.png)
 
@@ -15,6 +17,8 @@ cd token-widget
 The script checks for Xcode, installs XcodeGen with Homebrew if it's missing, detects your Apple Developer team from your keychain, builds a Release binary, installs it to `~/Applications`, and launches it. It takes about a minute on a clean checkout.
 
 You need macOS 14 or later and an Apple ID added to Xcode under Settings > Accounts. A free account works. Signing is required because the app and the widget exchange data through an App Group, and App Group IDs are prefixed with a team ID.
+
+Adding the Apple ID does not by itself create a signing certificate. Xcode mints one only when something asks it to. The script builds with `-allowProvisioningUpdates` so that happens automatically. If signing still fails, open Settings > Accounts, select the account, click **Manage Certificates**, and add an **Apple Development** certificate.
 
 ### Adding the widget
 
@@ -39,24 +43,36 @@ Three details make the difference between a plausible number and a correct one.
 
 **Thinking tokens aren't added twice.** `output_tokens_details.thinking_tokens` is a subset of `output_tokens`. It's tracked for display and excluded from the billed total.
 
-Two kinds of entry are deliberately excluded or zeroed. Messages with the model `<synthetic>` are placeholders the CLI writes when an API call fails, so they never reach the cost math. Models served locally, identified by a `org/model` style ID, chart their tokens but cost nothing.
+Two kinds of entry are deliberately excluded or zeroed. Messages with the model `<synthetic>` are placeholders the CLI writes when an API call fails, so they never reach the cost math. Models served locally chart their tokens but cost nothing.
 
 If a model has no published rate, its cost reads as zero and the app names it in the footer and the breakdown table. A missing rate is never quietly rendered as free usage.
 
 ### Prices
 
-Rates come from Anthropic's published list prices, per million tokens:
+Rates come from [OpenRouter's public model list](https://openrouter.ai/api/v1/models), fetched at most once a day and cached to `prices.json` beside the history. It is an unauthenticated endpoint and the request says nothing about you. Using a live feed is what keeps a model released after the last build from charting as $0: it prices itself with no code change.
 
-| Model | Input | Output |
-|---|---|---|
-| `claude-fable-5` | $10 | $50 |
-| `claude-opus-5` | $5 | $25 |
-| `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` | $5 | $25 |
-| `claude-sonnet-5` | $2 through 2026-08-31, then $3 | $10, then $15 |
-| `claude-sonnet-4-6` | $3 | $15 |
-| `claude-haiku-4-5` | $1 | $5 |
+The feed carries what the cost math needs: input, output, cached-read, both Anthropic cache-write tiers, and per-request web search. Two things it can't supply are compiled in as fallbacks, and the lookup order reflects that:
 
-Prices are applied per day, so Sonnet 5's introductory pricing is billed correctly on either side of the 31 August cutover rather than retroactively repricing older days. Fast mode on Opus 5 is priced separately at $10/$50. Server-side web search bills at $10 per 1,000 requests and is read from `server_tool_use.web_search_requests`.
+1. **A built-in tier with explicit dates wins.** The feed reports today's rate only. Sonnet 5 ran on introductory pricing through 2026-08-31, so pricing a day in July at today's rate would silently rewrite history.
+2. **Otherwise the feed wins**, which is the path almost every model takes.
+3. **Otherwise a built-in rate fills the gap.** OpenRouter does not list every model these harnesses run. As of 2026-08-14 that is `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-mythos-5`, `claude-mythos-preview`, and `claude-opus-4-8` / `-4-7` / `-4-6`.
+4. **Otherwise the model is unpriced**, reported as $0 and named in the footer. A guess is never substituted for a missing rate.
+
+Leaf model names are not unique across vendors on OpenRouter, so entries are keyed by the full `vendor/model` ID and resolved using the harness that produced the record. A name that stays ambiguous resolves to unpriced rather than to another vendor's rate.
+
+If the fetch fails, the cached copy stands rather than dropping every model to unpriced. The widget never makes the request itself; it reads the cache the app writes.
+
+### Codex
+
+Codex writes rollout transcripts to `~/.codex/sessions` and `~/.codex/archived_sessions`, one JSONL file per session. The `token_count` events carry OpenAI-style counts, where `cached_input_tokens` and `cache_write_input_tokens` are subsets of `input_tokens` and `reasoning_output_tokens` a subset of `output_tokens`. Those get unpacked into the same lanes as Claude's so the two chart together and one total means one thing.
+
+Two Codex-specific details:
+
+**Forked sessions.** Resuming or forking a session writes a *new* rollout file that replays the earlier turns verbatim. Keying dedup on the file path counted those turns once per file; on a 537-file corpus 122 turn identities appear in two files each. The key is now the millisecond timestamp plus the exact token split, with no path in it.
+
+**Web searches.** Counted from the `web_search_call` response item, not the `web_search_end` UI event that reports the same search; counting both would bill each one twice. A call that fans out into several queries counts once, matching how the rate card is quoted.
+
+Models served locally cost nothing per token and are charted but not billed. They are recognised by a Hugging Face repo path (`unsloth/Qwen3.6-27B-GGUF`) or an Ollama `name:tag` (`gpt-oss:20b`); no hosted model ID from either vendor uses `/` or `:`.
 
 ## History outlives the transcripts
 
