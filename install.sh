@@ -76,22 +76,20 @@ detect_team() {
 
 TEAM_ID="${TEAM_ID:-$(detect_team)}"
 
+# An Apple ID added under Xcode > Settings > Accounts does not by itself put a
+# development certificate in the keychain. Xcode only mints one when something
+# asks it to. So an empty result here is not necessarily a missing account, and
+# the build below is given -allowProvisioningUpdates to create the certificate.
 if [ -z "$TEAM_ID" ]; then
-    cat >&2 <<'EOF'
-error: no Apple Developer signing identity found in your keychain.
-
-Token Widget shares data between the app and the widget through an App Group,
-which requires a signed build with a team ID. To get one:
-
-  1. Open Xcode > Settings > Accounts and add your Apple ID (a free account works)
-  2. Re-run ./install.sh
-
-Or pass a team explicitly:  TEAM_ID=ABCDE12345 ./install.sh
-EOF
-    exit 1
+    TEAM_ID=$(sed -n 's/.*DEVELOPMENT_TEAM: \([A-Z0-9]*\).*/\1/p' project.yml | head -1)
+    if [ -n "$TEAM_ID" ]; then
+        warn "No signing certificate in your keychain yet; letting Xcode create one for team ${TEAM_ID}."
+    else
+        die "No signing certificate and no DEVELOPMENT_TEAM in project.yml. Pass one: TEAM_ID=ABCDE12345 ./install.sh"
+    fi
+else
+    say "Signing team: ${TEAM_ID}"
 fi
-
-say "Signing team: ${TEAM_ID}"
 
 # The entitlements use $(TeamIdentifierPrefix), which Xcode expands at build
 # time, so DEVELOPMENT_TEAM is the only place the team has to be written.
@@ -106,19 +104,56 @@ fi
 say "Generating Xcode project"
 xcodegen generate --quiet
 
-say "Building (this takes a minute on a clean checkout)"
 mkdir -p .build
 BUILD_DIR="$(pwd)/.build/xcode"
-if ! xcodebuild \
+
+# -allowProvisioningUpdates is what lets Xcode mint the development certificate
+# and provisioning profile for a signed-in Apple ID. Without it a machine whose
+# account is set up but has never signed anything fails with a bare signing
+# error, which reads as "your Apple ID is missing" when it is not.
+build() {
+    xcodebuild \
         -project TokenWidget.xcodeproj \
         -scheme TokenWidget \
         -configuration Release \
         -destination 'platform=macOS' \
         -derivedDataPath "$BUILD_DIR" \
-        build > .build/xcodebuild.log 2>&1; then
-    tail -40 .build/xcodebuild.log >&2
-    echo >&2
-    die "Build failed. Full log: .build/xcodebuild.log"
+        -allowProvisioningUpdates \
+        build > .build/xcodebuild.log 2>&1
+}
+
+say "Building (this takes a minute on a clean checkout)"
+if ! build; then
+    # The failed attempt may still have created a certificate, which is the
+    # first point at which the real team ID is knowable. If it differs from what
+    # we guessed, write it in and try once more.
+    DETECTED=$(detect_team)
+    if [ -n "$DETECTED" ] && [ "$DETECTED" != "$TEAM_ID" ]; then
+        say "Detected signing team ${DETECTED}; rebuilding"
+        /usr/bin/sed -i '' "s/DEVELOPMENT_TEAM: ${TEAM_ID}/DEVELOPMENT_TEAM: ${DETECTED}/" project.yml
+        TEAM_ID="$DETECTED"
+        xcodegen generate --quiet
+    fi
+    if ! build; then
+        tail -40 .build/xcodebuild.log >&2
+        echo >&2
+        cat >&2 <<EOF
+error: the build could not be signed.
+
+Token Widget shares data between the app and the widget through an App Group,
+and an App Group ID has to be prefixed with an Apple Developer team ID, so the
+build has to be signed. Check, in order:
+
+  1. Xcode > Settings > Accounts lists your Apple ID (a free account works)
+  2. Select the account, click Manage Certificates, and confirm there is an
+     "Apple Development" certificate. If not, click + and add one.
+  3. If you belong to more than one team, name the right one:
+       TEAM_ID=ABCDE12345 ./install.sh
+
+Full log: .build/xcodebuild.log
+EOF
+        exit 1
+    fi
 fi
 
 APP_SOURCE="$BUILD_DIR/Build/Products/Release/TokenWidget.app"
