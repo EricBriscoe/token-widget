@@ -142,7 +142,7 @@ public struct UsageQuery: Sendable {
     public let priceBook: PriceBook
     public let calendar: Calendar
 
-    public init(snapshot: UsageSnapshot, priceBook: PriceBook = .current, calendar: Calendar = .current) {
+    public init(snapshot: UsageSnapshot, priceBook: PriceBook = .shared, calendar: Calendar = .current) {
         self.snapshot = snapshot
         self.priceBook = priceBook
         self.calendar = calendar
@@ -237,7 +237,9 @@ public struct UsageQuery: Sendable {
 
             for entry in day.entries {
                 // Priced per day, so a rate change mid-window is respected.
-                let lookup = priceBook.lookup(model: entry.model, fast: entry.fast, on: day.day)
+                let lookup = priceBook.lookup(
+                    model: entry.model, provider: entry.provider, fast: entry.fast, on: day.day
+                )
                 let cost: Double
                 switch lookup.price {
                 case .priced(let price): cost = price.cost(for: entry.counts)

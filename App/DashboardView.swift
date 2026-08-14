@@ -234,6 +234,20 @@ struct DashboardView: View {
                 if !snapshot.unpricedModels.isEmpty {
                     Text("No published rate for \(snapshot.unpricedModels.joined(separator: ", ")); their tokens are charted but contribute $0 to cost.")
                 }
+            }
+
+            HStack(spacing: 6) {
+                if let fetched = store.pricesFetchedAt {
+                    Text("Rates for \(store.pricedModelCount) models from OpenRouter, updated \(UsageFormat.relativeAge(of: fetched)).")
+                } else {
+                    Text("Using built-in rates because OpenRouter's price list has not been fetched yet.")
+                }
+                Button("Refresh") { store.refreshPrices(force: true) }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+            }
+
+            if let snapshot = store.snapshot {
                 if !snapshot.localModels.isEmpty {
                     Text("Local models (\(snapshot.localModels.joined(separator: ", "))) have no per-token cost.")
                 }

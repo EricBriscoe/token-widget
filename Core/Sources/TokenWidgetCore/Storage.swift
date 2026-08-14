@@ -54,6 +54,10 @@ public enum SharedContainer {
     /// Code after its retention period. Once that happens the aggregated
     /// history is the only remaining record and cannot be rebuilt.
     public static var backupURL: URL { directory.appendingPathComponent("snapshot.previous.json") }
+    /// Cached model rates from OpenRouter. Lives beside the snapshot so the
+    /// sandboxed widget can price a chart without making a network call of its
+    /// own; only the app ever refreshes it.
+    public static var pricesURL: URL { directory.appendingPathComponent("prices.json") }
 }
 
 /// Advisory lock so the app's scan and any widget read never interleave.

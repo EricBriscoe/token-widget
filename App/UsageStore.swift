@@ -18,7 +18,13 @@ final class UsageStore: ObservableObject {
     @Published var metric: Metric = .cost
     @Published var offset: Int = 0
 
+    /// Rates in force. Starts from whatever is cached on disk so the first paint
+    /// is priced, then gets rebuilt when the day's refresh lands.
+    @Published private(set) var priceBook: PriceBook = .shared
+    @Published private(set) var pricesFetchedAt: Date? = OpenRouterPriceService().cached()?.fetchedAt
+
     private let store = SharedStore()
+    private let prices = OpenRouterPriceService()
     private let providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider()]
     private var watcher: DirectoryWatcher?
     /// Set while a scan is running so filesystem churn during the scan queues
@@ -26,8 +32,11 @@ final class UsageStore: ObservableObject {
     private var rescanQueued = false
 
     var breakdown: PeriodBreakdown {
-        UsageQuery(snapshot: snapshot ?? UsageSnapshot()).breakdown(range, offset: offset, metric: metric)
+        UsageQuery(snapshot: snapshot ?? UsageSnapshot(), priceBook: priceBook)
+            .breakdown(range, offset: offset, metric: metric)
     }
+
+    var pricedModelCount: Int { priceBook.catalogModelCount }
 
     var isLaunchAtLoginEnabled: Bool {
         SMAppService.mainApp.status == .enabled
@@ -38,6 +47,29 @@ final class UsageStore: ObservableObject {
         if let snapshot { palette = ChartPalette(snapshot: snapshot) }
         rescan()
         startWatching()
+        refreshPrices()
+    }
+
+    /// Pulls published rates from OpenRouter, at most once a day.
+    ///
+    /// Deliberately not awaited before the first scan: the chart paints from the
+    /// cached rates immediately, and only rescans if the fetch changed
+    /// something. A failed fetch leaves the cache in place.
+    func refreshPrices(force: Bool = false) {
+        let service = prices
+        Task { [weak self] in
+            guard let catalog = await service.refreshIfNeeded(force: force) else { return }
+            await self?.applyPrices(catalog)
+        }
+    }
+
+    private func applyPrices(_ catalog: PriceCatalog) {
+        guard catalog.fetchedAt != pricesFetchedAt else { return }
+        pricesFetchedAt = catalog.fetchedAt
+        priceBook = .builtIn.withCatalog(catalog)
+        // Which models count as unpriced is recorded in the snapshot, so a new
+        // catalog means that classification has to be redone.
+        rescan()
     }
 
     func rescan() {
@@ -48,7 +80,7 @@ final class UsageStore: ObservableObject {
         isScanning = true
         lastError = nil
 
-        let scanner = UsageScanner(providers: providers, store: store)
+        let scanner = UsageScanner(providers: providers, store: store, priceBook: priceBook)
         Task.detached(priority: .utility) { [weak self] in
             do {
                 let result = try scanner.scan { update in

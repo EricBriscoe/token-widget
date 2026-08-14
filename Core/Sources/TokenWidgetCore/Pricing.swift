@@ -2,24 +2,39 @@ import Foundation
 
 /// Per-million-token rates for one model on one day.
 ///
-/// Cache rates are derived from the input rate rather than stored separately:
-/// a 5-minute cache write bills at 1.25x input, a 1-hour write at 2x, and a
-/// cache read at 0.1x.
-public struct ModelPrice: Sendable, Hashable {
+/// Every lane is stored explicitly rather than derived, because the two vendors
+/// disagree about how caching is billed: Anthropic charges a premium to *write*
+/// a cache entry (1.25x input on the 5-minute TTL, 2x on the 1-hour one), while
+/// most OpenAI models charge nothing to write and only discount the read. When a
+/// source states just the input and output rates, the initializer fills the
+/// cache lanes in with Anthropic's published multipliers.
+public struct ModelPrice: Sendable, Hashable, Codable {
     public let inputPerMTok: Double
     public let outputPerMTok: Double
+    public let cacheReadPerMTok: Double
+    public let cacheWrite5mPerMTok: Double
+    public let cacheWrite1hPerMTok: Double
+    /// Server-side web search, billed per request rather than per token.
+    public let webSearchPerThousandRequests: Double
 
-    public init(input: Double, output: Double) {
+    /// The rate both vendors currently charge for a server-side web search.
+    public static let defaultWebSearchPerThousandRequests = 10.0
+
+    public init(
+        input: Double,
+        output: Double,
+        cacheRead: Double? = nil,
+        cacheWrite5m: Double? = nil,
+        cacheWrite1h: Double? = nil,
+        webSearchPerThousandRequests: Double = ModelPrice.defaultWebSearchPerThousandRequests
+    ) {
         inputPerMTok = input
         outputPerMTok = output
+        cacheReadPerMTok = cacheRead ?? input * 0.1
+        cacheWrite5mPerMTok = cacheWrite5m ?? input * 1.25
+        cacheWrite1hPerMTok = cacheWrite1h ?? input * 2.0
+        self.webSearchPerThousandRequests = webSearchPerThousandRequests
     }
-
-    public var cacheWrite5mPerMTok: Double { inputPerMTok * 1.25 }
-    public var cacheWrite1hPerMTok: Double { inputPerMTok * 2.0 }
-    public var cacheReadPerMTok: Double { inputPerMTok * 0.1 }
-
-    /// Server-side web search, billed per request rather than per token.
-    public static let webSearchPerThousandRequests = 10.0
 
     public func cost(for counts: TokenCounts) -> Double {
         var tokens: Double = 0
@@ -30,7 +45,7 @@ public struct ModelPrice: Sendable, Hashable {
         tokens += Double(counts.output) * outputPerMTok
 
         let searches = Double(counts.webSearches) / 1_000.0
-        let search = searches * Self.webSearchPerThousandRequests
+        let search = searches * webSearchPerThousandRequests
         return tokens / 1_000_000.0 + search
     }
 }
@@ -46,11 +61,31 @@ public enum PriceLookup: Sendable, Equatable {
     case unknown
 }
 
-/// Published Anthropic list prices, keyed by normalized model ID.
+/// Where a rate came from, so the UI can say how current the number is.
+public enum PriceSource: Sendable, Equatable {
+    /// Fetched from OpenRouter, which tracks published list prices for both
+    /// vendors and picks up new models without a code change.
+    case catalog
+    /// A rate compiled into the app. Used for historical tiers OpenRouter
+    /// cannot express, and for models it does not list.
+    case builtin
+    case none
+}
+
+/// Resolves what a model cost on a given day.
 ///
-/// Rates only cover models with a documented public price. Anything else
-/// resolves to `.unknown` on purpose; inventing a plausible number would put
-/// a wrong total on screen with no way to tell.
+/// Rates come from OpenRouter's public model list, refreshed at most daily, so a
+/// model released after this build still prices correctly. Two things that feed
+/// cannot supply are compiled in as fallbacks:
+///
+/// - **Dated tiers.** OpenRouter reports today's rate only. Repricing a day from
+///   six months ago at today's rate would silently rewrite history, so a tier
+///   with explicit date bounds always wins over the feed.
+/// - **Unlisted models.** OpenRouter does not carry every model these harnesses
+///   run. Anything missing from the feed falls through to the built-in rate.
+///
+/// A model neither source knows resolves to `.unknown` on purpose; inventing a
+/// plausible number would put a wrong total on screen with no way to tell.
 public struct PriceBook: Sendable {
     struct Tier: Sendable {
         /// Inclusive first day this rate applies, or nil for "always was".
@@ -58,6 +93,10 @@ public struct PriceBook: Sendable {
         /// Inclusive last day this rate applies, or nil for "still current".
         let through: DayID?
         let price: ModelPrice
+
+        /// A tier that names a date is a historical fact the live feed does not
+        /// carry, so it outranks the feed rather than falling back to it.
+        var isDated: Bool { from != nil || through != nil }
 
         func covers(_ day: DayID) -> Bool {
             if let from, day < from { return false }
@@ -68,8 +107,16 @@ public struct PriceBook: Sendable {
 
     private let standard: [String: [Tier]]
     private let fast: [String: [Tier]]
+    private let catalog: PriceCatalog?
 
-    public static let current = PriceBook(
+    /// Built-in rates, used when the catalog has no entry and to keep a first
+    /// run useful before the first fetch completes.
+    ///
+    /// Deliberately short. Anything OpenRouter lists does not need to be here,
+    /// so this table only carries dated tiers and the models the feed omits.
+    /// Verified absent from OpenRouter as of 2026-08-14: every `claude-` entry
+    /// below except `fable-5`, `opus-5` and `sonnet-5`.
+    public static let builtIn = PriceBook(
         standard: [
             // Frontier tier
             "claude-fable-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 10, output: 50))],
@@ -84,6 +131,8 @@ public struct PriceBook: Sendable {
 
             // Sonnet tier. Sonnet 5 launched on introductory pricing that runs
             // through 2026-08-31; days on either side of that bill differently.
+            // Both tiers are dated, so they outrank the live feed's single
+            // current rate and old days keep the billed price.
             "claude-sonnet-5": [
                 Tier(
                     from: nil,
@@ -104,41 +153,96 @@ public struct PriceBook: Sendable {
         fast: [
             // Fast mode is a research preview on Opus 5 at premium rates.
             "claude-opus-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 10, output: 50))]
-        ]
+        ],
+        catalog: nil
     )
 
-    init(standard: [String: [Tier]], fast: [String: [Tier]]) {
+    /// The built-in rates with no catalog attached. Callers that have a fetched
+    /// catalog should use `withCatalog(_:)`.
+    public static let current = PriceBook.builtIn
+
+    /// The built-in rates resolved against whatever catalog is cached on disk.
+    ///
+    /// Read once per process. The app rebuilds its own book after a refresh; the
+    /// widget is short-lived enough that reading the cache at launch is current.
+    public static let shared = PriceBook.builtIn.withCatalog(OpenRouterPriceService().cached())
+
+    init(standard: [String: [Tier]], fast: [String: [Tier]], catalog: PriceCatalog?) {
         self.standard = standard
         self.fast = fast
+        self.catalog = catalog
     }
+
+    /// The same book resolving against a fetched catalog.
+    public func withCatalog(_ catalog: PriceCatalog?) -> PriceBook {
+        PriceBook(standard: standard, fast: fast, catalog: catalog)
+    }
+
+    /// When the attached catalog was fetched, if there is one.
+    public var catalogFetchedAt: Date? { catalog?.fetchedAt }
+    public var catalogModelCount: Int { catalog?.models.count ?? 0 }
 
     /// Resolve the rate for a model on a specific day.
     ///
+    /// `provider` disambiguates the catalog: OpenRouter carries the same leaf
+    /// name under more than one vendor (`openai/gpt-4o-mini` and others), so the
+    /// harness that produced the record picks the right one.
+    ///
     /// A fast-mode request with no published fast rate falls back to the
     /// standard rate; `isApproximate` reports that so the UI can say so.
-    public func lookup(model: String, fast isFast: Bool, on day: DayID) -> (price: PriceLookup, isApproximate: Bool) {
+    public func lookup(
+        model: String,
+        provider: Provider? = nil,
+        fast isFast: Bool,
+        on day: DayID
+    ) -> (price: PriceLookup, isApproximate: Bool, source: PriceSource) {
         let id = PriceBook.normalize(model).id
-        if PriceBook.isLocalModel(id) { return (.local, false) }
+        if PriceBook.isLocalModel(id) { return (.local, false, .none) }
 
-        if isFast, let tiers = fast[id], let tier = tiers.first(where: { $0.covers(day) }) {
-            return (.priced(tier.price), false)
+        if isFast, let price = resolve(id: id, table: fast, catalogID: "\(id)-fast", provider: provider, day: day) {
+            return (.priced(price.rate), false, price.source)
         }
-        guard let tiers = standard[id], let tier = tiers.first(where: { $0.covers(day) }) else {
-            return (.unknown, false)
+        guard let price = resolve(id: id, table: standard, catalogID: id, provider: provider, day: day) else {
+            return (.unknown, false, .none)
         }
-        return (.priced(tier.price), isFast)
+        return (.priced(price.rate), isFast, price.source)
     }
 
-    public func cost(for counts: TokenCounts, model: String, fast: Bool, on day: DayID) -> Double {
-        switch lookup(model: model, fast: fast, on: day).price {
+    /// Dated built-in tier, then the catalog, then an open-ended built-in tier.
+    private func resolve(
+        id: String,
+        table: [String: [Tier]],
+        catalogID: String,
+        provider: Provider?,
+        day: DayID
+    ) -> (rate: ModelPrice, source: PriceSource)? {
+        let tiers = table[id] ?? []
+        if let dated = tiers.first(where: { $0.isDated && $0.covers(day) }) {
+            return (dated.price, .builtin)
+        }
+        if let fromCatalog = catalog?.price(for: catalogID, provider: provider) {
+            return (fromCatalog, .catalog)
+        }
+        if let open = tiers.first(where: { $0.covers(day) }) {
+            return (open.price, .builtin)
+        }
+        return nil
+    }
+
+    public func cost(for counts: TokenCounts, model: String, provider: Provider? = nil, fast: Bool, on day: DayID) -> Double {
+        switch lookup(model: model, provider: provider, fast: fast, on: day).price {
         case .priced(let price): return price.cost(for: counts)
         case .local, .unknown: return 0
         }
     }
 
-    /// A model identifier with a slash is a Hugging Face style repo path, which
-    /// means it is being served locally rather than billed per token.
-    public static func isLocalModel(_ id: String) -> Bool { id.contains("/") }
+    /// A model served from the user's own hardware, which costs nothing per
+    /// token. Two spellings show up: a Hugging Face repo path like
+    /// `unsloth/Qwen3.6-27B-GGUF`, and an Ollama `name:tag` such as
+    /// `gpt-oss:20b`. No hosted model ID from either vendor uses `/` or `:`.
+    public static func isLocalModel(_ id: String) -> Bool {
+        id.contains("/") || id.contains(":")
+    }
 
     /// Reduce the many spellings of a model ID to the one the table is keyed on.
     ///

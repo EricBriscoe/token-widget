@@ -43,7 +43,7 @@ public final class UsageScanner {
         providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider()],
         store: SharedStore = SharedStore(),
         calendar: Calendar = .current,
-        priceBook: PriceBook = .current,
+        priceBook: PriceBook = .shared,
         chunkSize: Int = 4 * 1024 * 1024
     ) {
         self.providers = providers
@@ -266,7 +266,7 @@ public final class UsageScanner {
         var local: Set<String> = []
 
         for key in keys {
-            let result = priceBook.lookup(model: key.model, fast: key.fast, on: today)
+            let result = priceBook.lookup(model: key.model, provider: key.provider, fast: key.fast, on: today)
             switch result.price {
             case .unknown: unpriced.insert(key.displayName)
             case .local: local.insert(key.displayName)

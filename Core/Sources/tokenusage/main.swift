@@ -30,7 +30,16 @@ let offset = arguments.count > 2 ? Int(arguments[2]) ?? 0 : 0
 let storeDirectory = SharedContainer.directory
 print("store: \(storeDirectory.path)")
 
-let scanner = UsageScanner()
+// Published rates, refreshed at most once a day and cached beside the history.
+let catalog = await OpenRouterPriceService().refreshIfNeeded()
+let priceBook = PriceBook.builtIn.withCatalog(catalog)
+if let catalog {
+    print("rates: \(catalog.models.count) models from OpenRouter, fetched \(UsageFormat.relativeAge(of: catalog.fetchedAt))")
+} else {
+    print("rates: built-in only (OpenRouter unreachable)")
+}
+
+let scanner = UsageScanner(priceBook: priceBook)
 var lastReported = Date.distantPast
 let started = Date()
 
@@ -59,7 +68,7 @@ if !snapshot.localModels.isEmpty {
     print("local (no per-token cost): \(snapshot.localModels.joined(separator: ", "))")
 }
 
-let query = UsageQuery(snapshot: snapshot)
+let query = UsageQuery(snapshot: snapshot, priceBook: priceBook)
 let breakdown = query.breakdown(range, offset: offset)
 
 print("\n\(breakdown.window.title)   \(formatMoney(breakdown.cost))   \(formatTokens(breakdown.totals.billedTotal)) tokens   \(breakdown.totals.messages) msgs")
