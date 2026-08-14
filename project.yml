@@ -1,0 +1,78 @@
+name: TokenWidget
+
+options:
+  bundleIdPrefix: dev.ericbriscoe
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: WJPH3B5Z5U
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+
+packages:
+  TokenWidgetCore:
+    path: Core
+
+targets:
+  TokenWidget:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: TokenWidgetCore
+        product: TokenWidgetCore
+      - target: TokenWidgetExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ericbriscoe.tokenwidget
+        PRODUCT_NAME: TokenWidget
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: App/TokenWidget.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: Token Widget
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        # The app reads ~/.claude and ~/.codex, so it cannot be sandboxed.
+        ENABLE_APP_SANDBOX: NO
+        COMBINE_HIDPI_IMAGES: YES
+
+  TokenWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+    dependencies:
+      - package: TokenWidgetCore
+        product: TokenWidgetCore
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ericbriscoe.tokenwidget.widget
+        PRODUCT_NAME: TokenWidgetExtension
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Widget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widget/TokenWidgetExtension.entitlements
+        SKIP_INSTALL: YES
+        # The widget only reads the shared container, so it stays sandboxed.
+        ENABLE_APP_SANDBOX: YES
+
+schemes:
+  TokenWidget:
+    build:
+      targets:
+        TokenWidget: all
+        TokenWidgetExtension: all
+    run:
+      config: Debug
+    test:
+      config: Debug

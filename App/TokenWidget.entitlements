@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed: the app reads transcripts from ~/.claude and ~/.codex.
+	     The widget extension is sandboxed and only ever reads the group container. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<!-- $(TeamIdentifierPrefix) expands to "<TEAMID>." at build time, so this
+	     file needs no editing when building under a different team. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)group.dev.ericbriscoe.tokenwidget</string>
+	</array>
+</dict>
+</plist>
