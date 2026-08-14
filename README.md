@@ -95,7 +95,7 @@ The app is not sandboxed because it reads `~/.claude`. The widget is sandboxed a
 cd Core && swift run tokenusage week
 ```
 
-It prints the same figures with an ASCII bar chart, which is the quickest way to check the engine against your raw logs.
+It prints the same figures with an ASCII bar chart, which is the quickest way to check the engine against your raw logs. It carries no entitlements, so it keeps its own store under `~/Library/Application Support/TokenWidget` and can't disturb the app's history.
 
 ### Building without the install script
 
