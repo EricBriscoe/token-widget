@@ -243,8 +243,11 @@ struct DashboardView: View {
             if let snapshot = store.snapshot {
                 Text("\(snapshot.totalMessages) messages across \(snapshot.days.count) days · scanned \(snapshot.filesScanned) transcripts in \(String(format: "%.1f", snapshot.scanDuration))s · updated \(UsageFormat.relativeAge(of: snapshot.generatedAt))")
 
-                if !snapshot.unpricedModels.isEmpty {
-                    Text("No published rate for \(snapshot.unpricedModels.joined(separator: ", ")); their tokens are charted but contribute $0 to cost.")
+                // Scoped to the period on screen, and listed whatever the
+                // size of the gap: this view has the room the widget's single
+                // footnote line does not.
+                if let note = UsageFormat.uncostedNote(for: breakdown) {
+                    Text("\(note); those tokens are charted but contribute $0 to the total.")
                 }
             }
 

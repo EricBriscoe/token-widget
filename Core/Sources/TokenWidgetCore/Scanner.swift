@@ -270,6 +270,9 @@ public final class UsageScanner {
             switch result.price {
             case .unknown: unpriced.insert(key.displayName)
             case .local: local.insert(key.displayName)
+            // Surfaced from the window breakdown instead, which can say how
+            // many tokens went unattributed rather than naming a fake model.
+            case .unattributed: break
             case .priced: if result.isApproximate { approximate.insert(key.displayName) }
             }
         }

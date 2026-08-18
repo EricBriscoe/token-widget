@@ -72,6 +72,11 @@ public struct ChartPalette: Sendable {
 
     public init(models: [ModelKey]) {
         let ranked = models.sorted { lhs, rhs in
+            // Unattributed usage is a residual bucket, not a series a reader
+            // learns, so it sorts behind every real model rather than taking a
+            // hue one of them could use. Its reserved ID would otherwise sort
+            // ahead of the whole alphabetical tail.
+            if lhs.isUnattributed != rhs.isUnattributed { return rhs.isUnattributed }
             let left = Self.canonicalOrder.firstIndex(of: lhs.model) ?? Int.max
             let right = Self.canonicalOrder.firstIndex(of: rhs.model) ?? Int.max
             if left != right { return left < right }

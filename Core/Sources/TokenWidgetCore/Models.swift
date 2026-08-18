@@ -98,8 +98,28 @@ public struct ModelKey: Codable, Sendable, Hashable {
         self.fast = fast
     }
 
+    /// Reserved ID for usage a transcript reported without ever naming the
+    /// model that produced it. Kept apart from real model names so a gap in the
+    /// transcript is never shown as a model called "unknown" that merely lacks
+    /// a published rate. No vendor ID contains underscores, so this cannot
+    /// collide with one.
+    public static let unattributed = "__unattributed__"
+
+    /// What older builds wrote for the same case. Snapshots are aggregated
+    /// history and are not rebuilt from transcripts on upgrade. The scanner
+    /// resumes each file from the offset it stopped at, so entries already on
+    /// disk keep this spelling forever and have to keep resolving.
+    static let legacyUnattributed = "unknown"
+
+    public var isUnattributed: Bool { ModelKey.isUnattributed(model) }
+
+    static func isUnattributed(_ model: String) -> Bool {
+        model == ModelKey.unattributed || model == ModelKey.legacyUnattributed
+    }
+
     /// Human-facing name: `claude-opus-5` becomes `Opus 5`.
     public var displayName: String {
+        if isUnattributed { return "Unattributed" }
         let base = ModelKey.prettify(model)
         return fast ? "\(base) (fast)" : base
     }

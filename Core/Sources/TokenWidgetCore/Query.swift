@@ -100,6 +100,7 @@ public struct ModelTotal: Sendable, Identifiable {
     public var id: String { "\(key.provider.rawValue)|\(key.model)|\(key.fast)" }
     public var displayName: String { key.displayName }
     public var isUnpriced: Bool { pricing == .unknown }
+    public var isUnattributed: Bool { pricing == .unattributed }
     public var isLocal: Bool { pricing == .local }
 
     public func value(for metric: Metric) -> Double {
@@ -120,9 +121,38 @@ public struct PeriodBreakdown: Sendable {
     public let totals: TokenCounts
     public let cost: Double
 
-    public var hasUnpricedModels: Bool { models.contains(\.isUnpriced) }
+    /// Models in *this window* whose tokens are charted but contribute nothing
+    /// to the total. Window-scoped on purpose: a model that went unpriced some
+    /// other month says nothing about whether this period's figure is complete,
+    /// and naming it on this period's card is just noise.
+    public var unpricedModels: [ModelTotal] { models.filter(\.isUnpriced) }
+    /// Usage this window recorded without the transcript ever naming a model.
+    public var unattributedModels: [ModelTotal] { models.filter(\.isUnattributed) }
+
+    public var hasUnpricedModels: Bool { !unpricedModels.isEmpty }
     public var hasApproximateCost: Bool { models.contains(\.isApproximate) }
     public var isEmpty: Bool { totals.messages == 0 }
+
+    /// Fraction of the window's billed tokens carrying no cost because no rate
+    /// was found. The headline figure understates spend by roughly this much.
+    public var uncostedTokenShare: Double {
+        let billed = totals.billedTotal
+        guard billed > 0 else { return 0 }
+        let missing = (unpricedModels + unattributedModels)
+            .reduce(0) { $0 + $1.counts.billedTotal }
+        return Double(missing) / Double(billed)
+    }
+
+    /// Whether the gap is big enough to be worth a warning.
+    ///
+    /// Below this the missing tokens move the headline by less than the cents
+    /// it is rounded to, and a single line of footnote is better spent saying
+    /// how fresh the data is. The dashboard lists every gap regardless; this
+    /// only gates the one-line note on the widget.
+    public static let materialUncostedShare = 0.01
+    public var hasMaterialUncostedUsage: Bool {
+        uncostedTokenShare >= PeriodBreakdown.materialUncostedShare
+    }
 
     public func peak(for metric: Metric) -> Double {
         points.map { $0.value(for: metric) }.max() ?? 0
@@ -252,7 +282,7 @@ public struct UsageQuery: Sendable {
                 let cost: Double
                 switch lookup.price {
                 case .priced(let price): cost = price.cost(for: entry.counts)
-                case .local, .unknown: cost = 0
+                case .local, .unknown, .unattributed: cost = 0
                 }
 
                 let key = entry.key

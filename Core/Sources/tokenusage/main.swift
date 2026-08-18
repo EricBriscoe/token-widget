@@ -81,11 +81,20 @@ for point in breakdown.points {
     print(String(format: "%-8@ %8@  %@", point.shortLabel as NSString, formatMoney(point.cost) as NSString, bar))
 }
 
+// The widget has one line of footnote, so it only spends it on a gap big
+// enough to move the headline. Printed here so the decision is checkable
+// against real transcripts without placing a widget on the desktop.
+if let note = UsageFormat.uncostedNote(for: breakdown) {
+    let share = breakdown.uncostedTokenShare * 100
+    let shown = breakdown.hasMaterialUncostedUsage ? "shown on widget" : "dashboard only"
+    print(String(format: "uncosted: %@  (%.2f%% of billed tokens, %@)", note, share, shown))
+}
 print(String(repeating: "-", count: 64))
 for model in breakdown.models {
     let share = breakdown.cost > 0 ? model.cost / breakdown.cost * 100 : 0
     var note = ""
     if model.isUnpriced { note = "  (no published rate)" }
+    if model.isUnattributed { note = "  (transcript named no model)" }
     if model.isLocal { note = "  (local)" }
     if model.isApproximate { note = "  (estimated)" }
     print(String(

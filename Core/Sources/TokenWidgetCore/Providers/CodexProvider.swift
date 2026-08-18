@@ -139,8 +139,16 @@ public struct CodexProvider: TranscriptProvider {
             )
         }
 
+        /// Codex states the model on a `turn_context` line, which normally
+        /// precedes the turn's token counts. Old CLI builds (0.77.0) wrote
+        /// `/review` sessions that never name a model on any line, and the
+        /// parser only ever moves forward, so those counts have nothing to
+        /// attribute to. They get the reserved ID rather than a plausible guess
+        /// or a literal "unknown", which the price book would then report as a
+        /// model whose rate is merely missing.
         private var currentModel: String {
-            PriceBook.normalize(state.lastModel ?? "unknown").id
+            guard let model = state.lastModel else { return ModelKey.unattributed }
+            return PriceBook.normalize(model).id
         }
 
         /// Identity for deduplication.

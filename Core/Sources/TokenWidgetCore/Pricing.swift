@@ -59,6 +59,10 @@ public enum PriceLookup: Sendable, Equatable {
     /// No published rate is on file. Cost is reported as zero and the model is
     /// surfaced in the UI, so a missing rate never masquerades as $0 of usage.
     case unknown
+    /// The transcript never named a model, so there is nothing to look a rate
+    /// up by. Reported separately from `.unknown`: that is a model we know the
+    /// name of and have no rate for, this is a hole in what the harness wrote.
+    case unattributed
 }
 
 /// Where a rate came from, so the UI can say how current the number is.
@@ -196,6 +200,7 @@ public struct PriceBook: Sendable {
         fast isFast: Bool,
         on day: DayID
     ) -> (price: PriceLookup, isApproximate: Bool, source: PriceSource) {
+        if ModelKey.isUnattributed(model) { return (.unattributed, false, .none) }
         let id = PriceBook.normalize(model).id
         if PriceBook.isLocalModel(id) { return (.local, false, .none) }
 
@@ -232,7 +237,7 @@ public struct PriceBook: Sendable {
     public func cost(for counts: TokenCounts, model: String, provider: Provider? = nil, fast: Bool, on day: DayID) -> Double {
         switch lookup(model: model, provider: provider, fast: fast, on: day).price {
         case .priced(let price): return price.cost(for: counts)
-        case .local, .unknown: return 0
+        case .local, .unknown, .unattributed: return 0
         }
     }
 

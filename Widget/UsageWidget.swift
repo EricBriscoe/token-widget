@@ -12,7 +12,6 @@ struct UsageEntry: TimelineEntry {
     let offset: Int
     /// When the app last folded new transcripts in. Nil means it has never run.
     let generatedAt: Date?
-    let unpricedModels: [String]
 }
 
 struct UsageTimelineProvider: AppIntentTimelineProvider {
@@ -45,8 +44,7 @@ struct UsageTimelineProvider: AppIntentTimelineProvider {
             metric: metric.metric,
             range: range,
             offset: offset,
-            generatedAt: snapshot?.generatedAt,
-            unpricedModels: snapshot?.unpricedModels ?? []
+            generatedAt: snapshot?.generatedAt
         )
     }
 }
@@ -243,6 +241,12 @@ private struct PeriodHeader: View {
 
 /// Says how fresh the numbers are, and flags anything the price book could not
 /// price so a zero is never read as free usage.
+///
+/// Both checks are scoped to the period on screen. The snapshot-wide lists say
+/// whether *any* day on record had a gap, which on a one-week card means a model
+/// last used in January can sit on top of a total it contributed nothing to.
+/// The warning also has to clear `hasMaterialUncostedUsage`: this is a single
+/// 9pt line, and spending it on a tenth of a cent buries how stale the data is.
 private struct FooterNote: View {
     let entry: UsageEntry
 
@@ -250,8 +254,9 @@ private struct FooterNote: View {
         Group {
             if entry.generatedAt == nil {
                 Text("Open Token Widget to scan your transcripts")
-            } else if !entry.unpricedModels.isEmpty {
-                Text("\(entry.unpricedModels.joined(separator: ", ")) has no published rate")
+            } else if entry.breakdown.hasMaterialUncostedUsage,
+                      let note = UsageFormat.uncostedNote(for: entry.breakdown) {
+                Text(note)
             } else if entry.breakdown.isEmpty {
                 Text("No usage recorded in this period")
             } else if let generatedAt = entry.generatedAt {

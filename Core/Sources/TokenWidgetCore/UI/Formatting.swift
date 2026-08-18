@@ -58,6 +58,43 @@ public enum UsageFormat {
         }
     }
 
+    /// Joins names into readable English: `A`, `A and B`, `A, B and C`, and past
+    /// `limit` names `A, B, C and 2 more`. The old call site joined with commas
+    /// and appended a singular verb, which read as "X, Y has no published rate".
+    public static func list(_ names: [String], limit: Int = 3) -> String {
+        if names.isEmpty { return "" }
+        if names.count == 1 { return names[0] }
+        if names.count <= limit {
+            return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        }
+        // "more" rather than "others" so the tail needs no singular/plural form.
+        return "\(names.prefix(limit).joined(separator: ", ")) and \(names.count - limit) more"
+    }
+
+    /// One line explaining why the period's total is lower than what was
+    /// spent, or nil when nothing is missing.
+    ///
+    /// Both gaps read as $0 in the chart but have different causes, so they are
+    /// worded differently: a named model the price book has no rate for is
+    /// something a rate could fix, while unattributed tokens are usage the
+    /// transcript never tied to any model.
+    public static func uncostedNote(for breakdown: PeriodBreakdown) -> String? {
+        let unpriced = breakdown.unpricedModels.map(\.displayName).sorted()
+        let unattributed = breakdown.unattributedModels
+            .reduce(0) { $0 + $1.counts.billedTotal }
+
+        var parts: [String] = []
+        if !unpriced.isEmpty {
+            let verb = unpriced.count == 1 ? "has" : "have"
+            parts.append("\(list(unpriced)) \(verb) no published rate")
+        }
+        if unattributed > 0 {
+            parts.append("\(tokens(unattributed)) tokens name no model")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: "; ")
+    }
+
     /// "updated 4 min ago", so a stale widget is obvious rather than silently wrong.
     public static func relativeAge(of date: Date, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
