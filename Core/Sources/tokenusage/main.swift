@@ -71,7 +71,7 @@ if !snapshot.localModels.isEmpty {
 let query = UsageQuery(snapshot: snapshot, priceBook: priceBook)
 let breakdown = query.breakdown(range, offset: offset)
 
-print("\n\(breakdown.window.title)   \(formatMoney(breakdown.cost))   \(formatTokens(breakdown.totals.billedTotal)) tokens   \(breakdown.totals.messages) msgs")
+print("\n\(breakdown.window.title)   \(formatMoney(breakdown.cost))   \(formatTokens(breakdown.totals.output)) generated   \(breakdown.totals.messages) msgs")
 print(String(repeating: "-", count: 64))
 
 let peak = breakdown.peak(for: .cost)

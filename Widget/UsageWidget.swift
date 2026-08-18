@@ -102,13 +102,13 @@ private struct SmallUsageView: View {
                 .foregroundStyle(ChartColor.mutedInk)
                 .lineLimit(1)
 
-            Text(UsageFormat.compactValue(entry.breakdown.totals(for: entry.metric), metric: entry.metric))
+            Text(UsageFormat.compactValue(entry.breakdown.value(for: entry.metric), metric: entry.metric))
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(ChartColor.primaryInk)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
-            Text(entry.metric == .cost ? "\(UsageFormat.tokens(entry.breakdown.totals.billedTotal)) tokens" : "across \(entry.breakdown.models.count) models")
+            Text(entry.metric == .cost ? "\(UsageFormat.tokens(entry.breakdown.totals.output)) generated" : "across \(entry.breakdown.models.count) models")
                 .font(.system(size: 9))
                 .foregroundStyle(ChartColor.secondaryInk)
                 .lineLimit(1)
@@ -147,7 +147,7 @@ private struct MediumUsageView: View {
                     models: entry.breakdown.models,
                     palette: entry.palette,
                     metric: entry.metric,
-                    total: entry.breakdown.totals(for: entry.metric),
+                    total: entry.breakdown.value(for: entry.metric),
                     limit: 4
                 )
                 .frame(width: 132)
@@ -182,7 +182,7 @@ private struct LargeUsageView: View {
                 models: entry.breakdown.models,
                 palette: entry.palette,
                 metric: entry.metric,
-                total: entry.breakdown.totals(for: entry.metric),
+                total: entry.breakdown.value(for: entry.metric),
                 limit: family == .systemExtraLarge ? 8 : 5
             )
 
@@ -204,7 +204,7 @@ private struct PeriodHeader: View {
                     .foregroundStyle(ChartColor.secondaryInk)
                     .lineLimit(1)
 
-                Text(UsageFormat.value(entry.breakdown.totals(for: entry.metric), metric: entry.metric))
+                Text(UsageFormat.value(entry.breakdown.value(for: entry.metric), metric: entry.metric))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(ChartColor.primaryInk)
                     .lineLimit(1)
@@ -261,14 +261,5 @@ private struct FooterNote: View {
         .font(.system(size: 9))
         .foregroundStyle(ChartColor.mutedInk)
         .lineLimit(1)
-    }
-}
-
-private extension PeriodBreakdown {
-    func totals(for metric: Metric) -> Double {
-        switch metric {
-        case .cost: return cost
-        case .tokens: return Double(totals.billedTotal)
-        }
     }
 }

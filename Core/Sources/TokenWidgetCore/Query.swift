@@ -27,6 +27,8 @@ public enum Granularity: String, Codable, Sendable {
     case daily, weekly, monthly
 }
 
+/// What a chart plots. `tokens` counts generated (output) tokens only;
+/// `cost` prices every lane: input, cache writes, cache reads, and output.
 public enum Metric: String, Codable, Sendable, CaseIterable {
     case cost, tokens
 
@@ -103,7 +105,7 @@ public struct ModelTotal: Sendable, Identifiable {
     public func value(for metric: Metric) -> Double {
         switch metric {
         case .cost: return cost
-        case .tokens: return Double(counts.billedTotal)
+        case .tokens: return Double(counts.output)
         }
     }
 }
@@ -122,10 +124,17 @@ public struct PeriodBreakdown: Sendable {
     public var hasApproximateCost: Bool { models.contains(\.isApproximate) }
     public var isEmpty: Bool { totals.messages == 0 }
 
-    public var peakValue: Double { points.map(\.cost).max() ?? 0 }
-
     public func peak(for metric: Metric) -> Double {
         points.map { $0.value(for: metric) }.max() ?? 0
+    }
+
+    /// The period's headline figure: total cost, or total generated tokens.
+    /// Shared so the dashboard and the widget cannot disagree about it.
+    public func value(for metric: Metric) -> Double {
+        switch metric {
+        case .cost: return cost
+        case .tokens: return Double(totals.output)
+        }
     }
 }
 
@@ -279,7 +288,7 @@ public struct UsageQuery: Sendable {
 
         let points = bucketStarts.enumerated().map { index, start -> SeriesPoint in
             let segments = perBucket[index]
-                .map { SeriesSegment(key: $0.key, cost: $0.value.cost, tokens: $0.value.counts.billedTotal) }
+                .map { SeriesSegment(key: $0.key, cost: $0.value.cost, tokens: $0.value.counts.output) }
                 .sorted { (order[$0.key] ?? .max) < (order[$1.key] ?? .max) }
             return SeriesPoint(
                 bucketStart: start,
