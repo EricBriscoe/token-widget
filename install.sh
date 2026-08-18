@@ -192,7 +192,9 @@ ${BOLD}To add the desktop widget:${RESET}
   4. Control-click the placed widget and choose ${BOLD}Edit Widget${RESET} to pick the
      range (week, month, quarter, year) and whether it shows cost or tokens
 
-${DIM}Keep the app running, or tick "Open at login" in its window, so the widget
-keeps getting fresh numbers. It stores history in
+${DIM}Token Widget lives in the menu bar (bar-chart icon), with no Dock icon.
+Closing the dashboard leaves it running, watching for new transcripts. Tick
+"Open at login" in the dashboard so it survives a restart and the widget keeps
+getting fresh numbers. History lives in
 ~/Library/Group Containers/${TEAM_ID}.group.dev.ericbriscoe.tokenwidget/${RESET}
 EOF

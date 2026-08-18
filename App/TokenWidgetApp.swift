@@ -1,32 +1,34 @@
+import AppKit
 import SwiftUI
+import TokenWidgetCore
 
 @main
 struct TokenWidgetApp: App {
-    @StateObject private var store = UsageStore()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @AppStorage(AppDelegate.showMenuBarIconKey) private var showMenuBarIcon = true
 
     var body: some Scene {
-        WindowGroup("Token Widget") {
-            DashboardView()
-                .environmentObject(store)
-                .task { store.start() }
+        MenuBarExtra("Token Widget", systemImage: "chart.bar.fill", isInserted: $showMenuBarIcon) {
+            MenuBarMenu(store: delegate.store) { delegate.showDashboard() }
         }
-        .windowResizability(.contentMinSize)
-        .commands {
-            CommandGroup(after: .newItem) {
-                Button("Rescan Transcripts") { store.rescan() }
-                    .keyboardShortcut("r", modifiers: .command)
+    }
+}
 
-                Divider()
+private struct MenuBarMenu: View {
+    @ObservedObject var store: UsageStore
+    let openDashboard: () -> Void
 
-                Button("Export History…") { store.exportHistory() }
-                Button("Import History…") { store.importHistory() }
-                Button("Restore Previous History") { store.restorePreviousHistory() }
-                Button("Show Data Folder in Finder") { store.revealDataFolder() }
-
-                Divider()
-
-                Button("Rebuild History from Transcripts…") { store.rebuildHistory() }
-            }
+    var body: some View {
+        if let snapshot = store.snapshot {
+            Text("Updated \(UsageFormat.relativeAge(of: snapshot.generatedAt))")
         }
+
+        Button("Open Dashboard", action: openDashboard)
+        Button("Rescan Now") { store.rescan() }
+            .disabled(store.isScanning)
+
+        Divider()
+
+        Button("Quit Token Widget") { NSApp.terminate(nil) }
     }
 }

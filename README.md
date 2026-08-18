@@ -29,7 +29,9 @@ Adding the Apple ID does not by itself create a signing certificate. Xcode mints
 
 Four ranges are available, each bucketed so the bar count stays readable: week by day, month by day, quarter by week, year by month. The arrows on the widget step backwards through periods.
 
-Keep the app running, or tick "Open at login" in its window. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
+The widget shows cost or tokens. The token count is `output_tokens` only, what the model generated; cost prices every lane: input, cache writes, cache reads, and output.
+
+The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
 
 ## Where the numbers come from
 
@@ -99,7 +101,7 @@ The dedup index stores 64-bit hashes rather than the identity strings: 8 bytes p
 
 ```
 Core/     Swift package: parsing, pricing, aggregation, storage, charts
-App/      SwiftUI host app, FSEvents watching, scan driver
+App/      Menu bar app: dashboard window, FSEvents watching, scan driver
 Widget/   WidgetKit extension and its configuration intents
 ```
 

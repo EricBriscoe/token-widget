@@ -40,6 +40,9 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/TokenWidget.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: Token Widget
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        # Accessory app: no Dock icon, no window at login. The dashboard opens
+        # from the menu bar item or by launching the app again.
+        INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         # The app reads ~/.claude and ~/.codex, so it cannot be sandboxed.
         ENABLE_APP_SANDBOX: NO

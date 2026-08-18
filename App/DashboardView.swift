@@ -3,14 +3,12 @@ import TokenWidgetCore
 
 struct DashboardView: View {
     @EnvironmentObject private var store: UsageStore
+    @AppStorage(AppDelegate.showMenuBarIconKey) private var showMenuBarIcon = true
 
     private var breakdown: PeriodBreakdown { store.breakdown }
 
     private var headlineValue: Double {
-        switch store.metric {
-        case .cost: return breakdown.cost
-        case .tokens: return Double(breakdown.totals.billedTotal)
-        }
+        breakdown.value(for: store.metric)
     }
 
     var body: some View {
@@ -73,6 +71,20 @@ struct DashboardView: View {
             }
             .buttonStyle(.bordered)
             .disabled(store.isScanning)
+
+            Menu {
+                Button("Export History…") { store.exportHistory() }
+                Button("Import History…") { store.importHistory() }
+                Button("Restore Previous History") { store.restorePreviousHistory() }
+                Button("Show Data Folder in Finder") { store.revealDataFolder() }
+                Divider()
+                Button("Rebuild History from Transcripts…") { store.rebuildHistory() }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
+            .fixedSize()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -96,7 +108,7 @@ struct DashboardView: View {
                     // The headline already carries the selected measure, so the
                     // supporting line shows the other one rather than repeating it.
                     switch store.metric {
-                    case .cost: Text("\(UsageFormat.tokens(breakdown.totals.billedTotal)) tokens")
+                    case .cost: Text("\(UsageFormat.tokens(breakdown.totals.output)) tokens generated")
                     case .tokens: Text(UsageFormat.money(breakdown.cost))
                     }
                     Text("\(breakdown.totals.messages) messages")
@@ -264,6 +276,13 @@ struct DashboardView: View {
             ))
             .toggleStyle(.checkbox)
             .padding(.top, 4)
+
+            Toggle("Show the menu bar icon", isOn: $showMenuBarIcon)
+                .toggleStyle(.checkbox)
+
+            if !showMenuBarIcon {
+                Text("With the icon hidden, open Token Widget again from Finder or Spotlight to get back to this window.")
+            }
         }
         .font(.system(size: 11))
         .foregroundStyle(ChartColor.mutedInk)

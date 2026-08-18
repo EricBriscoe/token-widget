@@ -6,3 +6,4 @@ DerivedData/
 .swiftpm/
 Core/.build/
 .build/
+.serena/
