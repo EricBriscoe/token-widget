@@ -27,7 +27,7 @@ struct DashboardView: View {
             }
         }
         .background(ChartColor.surface)
-        .frame(minWidth: 720, minHeight: 560)
+        .frame(minWidth: 860, minHeight: 560)
     }
 
     // MARK: - Controls
@@ -53,12 +53,17 @@ struct DashboardView: View {
 
             HStack(spacing: 4) {
                 Button { store.step(by: -1) } label: { Image(systemName: "chevron.left") }
+                    .help("Previous period")
+                    .accessibilityLabel("Previous period")
                 Button { store.offset = 0 } label: { Text("Now") }
                     .disabled(store.offset == 0)
                 Button { store.step(by: 1) } label: { Image(systemName: "chevron.right") }
+                    .help("Next period")
+                    .accessibilityLabel("Next period")
                     .disabled(store.offset >= 0)
             }
             .buttonStyle(.bordered)
+            .fixedSize()
 
             Button {
                 store.rescan()
@@ -71,6 +76,8 @@ struct DashboardView: View {
             }
             .buttonStyle(.bordered)
             .disabled(store.isScanning)
+            .help("Rescan transcripts")
+            .accessibilityLabel("Rescan transcripts")
 
             Menu {
                 Button("Export History…") { store.exportHistory() }
@@ -83,6 +90,8 @@ struct DashboardView: View {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.button)
+            .help("History actions")
+            .accessibilityLabel("History actions")
             .buttonStyle(.bordered)
             .fixedSize()
         }
@@ -100,7 +109,7 @@ struct DashboardView: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 // Proportional figures on the hero number, not tabular.
-                Text(UsageFormat.value(headlineValue, metric: store.metric))
+                Text(UsageFormat.value(for: breakdown, metric: store.metric))
                     .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(ChartColor.primaryInk)
 
@@ -109,7 +118,7 @@ struct DashboardView: View {
                     // supporting line shows the other one rather than repeating it.
                     switch store.metric {
                     case .cost: Text("\(UsageFormat.tokens(breakdown.totals.output)) tokens generated")
-                    case .tokens: Text(UsageFormat.money(breakdown.cost))
+                    case .tokens: Text(UsageFormat.value(for: breakdown, metric: .cost))
                     }
                     Text("\(breakdown.totals.messages) messages")
                 }
@@ -124,6 +133,12 @@ struct DashboardView: View {
                         .background(ChartColor.gridline, in: Capsule())
                         .foregroundStyle(ChartColor.secondaryInk)
                 }
+            }
+
+            if breakdown.hasUnpricedModels {
+                Text("Cost excludes \(breakdown.models.filter(\.isUnpriced).map(\.displayName).joined(separator: ", ")).\(store.metric == .cost ? " Select Tokens to see all generated activity." : "")")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChartColor.secondaryInk)
             }
         }
     }
@@ -205,8 +220,8 @@ struct DashboardView: View {
                             if model.isUnpriced { tag("no rate") }
                             if model.isApproximate { tag("estimated") }
                         }
-                        Text(UsageFormat.money(model.cost))
-                        Text(headlineValue > 0 ? "\(Int((model.value(for: store.metric) / headlineValue * 100).rounded()))%" : "–")
+                        Text(model.isUnpriced ? "–" : UsageFormat.money(model.cost))
+                        Text(headlineValue > 0 && !(store.metric == .cost && model.isUnpriced) ? "\(Int((model.value(for: store.metric) / headlineValue * 100).rounded()))%" : "–")
                         Text(UsageFormat.tokens(model.counts.input))
                         Text(UsageFormat.tokens(model.counts.cacheWrite5m + model.counts.cacheWrite1h))
                         Text(UsageFormat.tokens(model.counts.cacheRead))
@@ -262,14 +277,14 @@ struct DashboardView: View {
                     .font(.system(size: 11))
             }
 
-            if let snapshot = store.snapshot {
-                if !snapshot.localModels.isEmpty {
-                    Text("Local models (\(snapshot.localModels.joined(separator: ", "))) have no per-token cost.")
-                }
-                if !snapshot.approximateModels.isEmpty {
-                    Text("Estimated rate used for \(snapshot.approximateModels.joined(separator: ", ")).")
-                }
+            if breakdown.models.contains(where: \.isLocal) {
+                Text("Local models have no per-token cost.")
             }
+            if breakdown.hasApproximateCost {
+                Text("Estimated rates used for \(breakdown.models.filter(\.isApproximate).map(\.displayName).joined(separator: ", ")).")
+            }
+
+            Text("Costs estimate API list prices, not your subscription bill. GPT-6 Astra estimates exclude the surcharge for requests above 272K input tokens.")
 
             Text("Recorded days are kept after Claude Code deletes the transcripts they came from, so history grows the longer this runs. It has to scan at least once inside Claude Code's retention window (30 days by default) to capture a given day.")
 

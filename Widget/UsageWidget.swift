@@ -100,7 +100,7 @@ private struct SmallUsageView: View {
                 .foregroundStyle(ChartColor.mutedInk)
                 .lineLimit(1)
 
-            Text(UsageFormat.compactValue(entry.breakdown.value(for: entry.metric), metric: entry.metric))
+            Text(UsageFormat.value(for: entry.breakdown, metric: entry.metric, compact: true))
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(ChartColor.primaryInk)
                 .minimumScaleFactor(0.6)
@@ -122,6 +122,9 @@ private struct SmallUsageView: View {
                 collapseSegments: true
             )
             .frame(height: 44)
+
+            FooterNote(entry: entry)
+                .padding(.top, 4)
         }
     }
 }
@@ -146,6 +149,7 @@ private struct MediumUsageView: View {
                     palette: entry.palette,
                     metric: entry.metric,
                     total: entry.breakdown.value(for: entry.metric),
+                    showsShare: false,
                     limit: 4
                 )
                 .frame(width: 132)
@@ -202,7 +206,7 @@ private struct PeriodHeader: View {
                     .foregroundStyle(ChartColor.secondaryInk)
                     .lineLimit(1)
 
-                Text(UsageFormat.value(entry.breakdown.value(for: entry.metric), metric: entry.metric))
+                Text(UsageFormat.value(for: entry.breakdown, metric: entry.metric))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(ChartColor.primaryInk)
                     .lineLimit(1)
@@ -254,11 +258,13 @@ private struct FooterNote: View {
         Group {
             if entry.generatedAt == nil {
                 Text("Open Token Widget to scan your transcripts")
-            } else if entry.breakdown.hasMaterialUncostedUsage,
+            } else if entry.metric == .cost && entry.breakdown.hasMaterialUncostedUsage,
                       let note = UsageFormat.uncostedNote(for: entry.breakdown) {
                 Text(note)
             } else if entry.breakdown.isEmpty {
                 Text("No usage recorded in this period")
+            } else if entry.metric == .cost && entry.breakdown.hasApproximateCost {
+                Text("Estimated API cost")
             } else if let generatedAt = entry.generatedAt {
                 Text("updated \(UsageFormat.relativeAge(of: generatedAt))")
             }

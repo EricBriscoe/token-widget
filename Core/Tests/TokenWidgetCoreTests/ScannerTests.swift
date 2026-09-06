@@ -158,6 +158,50 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(snapshot.totalMessages, 3)
     }
 
+    private func rewriteInPlace(_ contents: String, name: String) throws {
+        let url = sessionsDirectory.appendingPathComponent(name)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data(contents.utf8))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: url.path
+        )
+    }
+
+    func testSameSizeRewriteInPlaceReadsNewRecords() throws {
+        try write(line(request: "a") + "\n", to: "rewritten.jsonl")
+        let scanner = makeScanner()
+        _ = try scanner.scan()
+        let previous = try XCTUnwrap(store.loadScanState().files.values.first)
+
+        try rewriteInPlace(line(request: "b") + "\n", name: "rewritten.jsonl")
+        let snapshot = try scanner.scan()
+        let current = try XCTUnwrap(store.loadScanState().files.values.first)
+
+        XCTAssertEqual(current.inode, previous.inode)
+        XCTAssertEqual(current.size, previous.size)
+        XCTAssertEqual(snapshot.totalMessages, 2)
+        XCTAssertEqual(snapshot.days[0].totals.output, 200)
+    }
+
+    func testShrinkAboveCompleteLineOffsetReadsFromBeginning() throws {
+        try write(line(request: "a") + "\n" + String(repeating: "x", count: 2_000), to: "rewritten.jsonl")
+        let scanner = makeScanner()
+        _ = try scanner.scan()
+        let previous = try XCTUnwrap(store.loadScanState().files.values.first)
+
+        try rewriteInPlace(line(request: "b", output: 1_000) + "\n", name: "rewritten.jsonl")
+        let snapshot = try scanner.scan()
+        let current = try XCTUnwrap(store.loadScanState().files.values.first)
+
+        XCTAssertEqual(current.inode, previous.inode)
+        XCTAssertLessThan(current.size, previous.size)
+        XCTAssertGreaterThan(current.size, previous.offset)
+        XCTAssertEqual(snapshot.totalMessages, 2)
+        XCTAssertEqual(snapshot.days[0].totals.output, 1_100)
+    }
+
     func testDeletedTranscriptKeepsItsHistoryButDropsScanState() throws {
         try write(line(request: "a") + "\n", to: "gone.jsonl")
         let scanner = makeScanner()

@@ -101,7 +101,7 @@ final class CodexParserTests: XCTestCase {
         let parser = makeParser()
         _ = parser.record(from: Data(turnContext().utf8))
         let a = try XCTUnwrap(parser.record(from: Data(tokenCount(timestamp: "2026-08-13T20:34:03.066Z").utf8)))
-        let b = try XCTUnwrap(parser.record(from: Data(tokenCount(timestamp: "2026-08-13T20:34:09.512Z").utf8)))
+        let b = try XCTUnwrap(parser.record(from: Data(tokenCount(timestamp: "2026-08-13T20:34:09.512Z", input: 24_000).utf8)))
         XCTAssertNotEqual(a.dedupKey, b.dedupKey)
     }
 
@@ -174,4 +174,42 @@ final class CodexParserTests: XCTestCase {
         XCTAssertEqual(second.counts.input, 1_500)
         XCTAssertEqual(second.counts.output, 160)
     }
+    func testRepeatedTotalsAtNewTimestampAreIgnoredAfterResume() throws {
+        let parser = makeParser()
+        _ = parser.record(from: Data(turnContext().utf8))
+        XCTAssertNotNil(parser.record(from: Data(tokenCount().utf8)))
+        let saved = try JSONEncoder().encode(parser.state)
+        let state = try JSONDecoder().decode(ParserState.self, from: saved)
+        let resumed = CodexProvider().makeParser(file: URL(fileURLWithPath: "/tmp/live.jsonl"), resuming: state)
+        XCTAssertNil(resumed.record(from: Data(tokenCount(timestamp: "2026-08-13T20:35:03.066Z").utf8)))
+    }
+
+    func testCumulativeFallbackSurvivesResumeAndMixedEvents() throws {
+        let parser = makeParser()
+        _ = parser.record(from: Data(turnContext().utf8))
+        _ = parser.record(from: Data(tokenCount(input: 1_000, cached: 200, output: 100, reasoning: 20).utf8))
+        let resumed = CodexProvider().makeParser(file: URL(fileURLWithPath: "/tmp/live.jsonl"), resuming: parser.state)
+        let line = """
+        {"timestamp":"2026-08-13T20:35:03.066Z","type":"event_msg","payload":{"type":"token_count","info":{
+        "total_token_usage":{"input_tokens":1500,"cached_input_tokens":300,"cache_write_input_tokens":0,
+        "output_tokens":150,"reasoning_output_tokens":30}}}}
+        """
+        let record = try XCTUnwrap(resumed.record(from: Data(line.utf8)))
+        XCTAssertEqual(record.counts.totalInput, 500)
+        XCTAssertEqual(record.counts.cacheRead, 100)
+        XCTAssertEqual(record.counts.output, 50)
+        XCTAssertEqual(record.projectPath, "/Users/eric/dev/token-widget")
+    }
+
+    func testLastUsageOnlyEventsStillCount() throws {
+        let parser = makeParser()
+        let line = """
+        {"timestamp":"2026-08-13T20:35:03.066Z","type":"event_msg","payload":{"type":"token_count","info":{
+        "last_token_usage":{"input_tokens":500,"output_tokens":50}}}}
+        """
+        let record = try XCTUnwrap(parser.record(from: Data(line.utf8)))
+        XCTAssertEqual(record.counts.input, 500)
+        XCTAssertEqual(record.counts.output, 50)
+    }
+
 }

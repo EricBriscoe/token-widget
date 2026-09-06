@@ -99,4 +99,20 @@ final class QueryMetricTests: XCTestCase {
         )
         XCTAssertEqual(breakdown.totals.output, 850)
     }
+    func testTokenLegendRanksUnpricedActivityByGeneratedTokens() {
+        let day = DayID(year: 2026, month: 9, day: 5)
+        let snapshot = UsageSnapshot(days: [DaySummary(day: day, entries: [
+            ModelEntry(provider: .codex, model: "unpriced-model", fast: false,
+                       counts: TokenCounts(output: 1_000, messages: 1)),
+            ModelEntry(provider: .claudeCode, model: "claude-opus-5", fast: false,
+                       counts: TokenCounts(input: 100_000, output: 10, messages: 1))
+        ])])
+        let query = UsageQuery(snapshot: snapshot, priceBook: .builtIn, calendar: utc)
+        let tokens = query.breakdown(.week, metric: .tokens, now: day.date(calendar: utc))
+        let cost = query.breakdown(.week, metric: .cost, now: day.date(calendar: utc))
+        XCTAssertEqual(tokens.models.first?.key.model, "unpriced-model")
+        XCTAssertEqual(cost.models.first?.key.model, "claude-opus-5")
+        XCTAssertEqual(tokens.points.flatMap(\.segments).first?.key.model, "unpriced-model")
+    }
+
 }

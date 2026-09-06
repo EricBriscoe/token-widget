@@ -119,7 +119,7 @@ build() {
         -destination 'platform=macOS' \
         -derivedDataPath "$BUILD_DIR" \
         -allowProvisioningUpdates \
-        build > .build/xcodebuild.log 2>&1
+        clean build > .build/xcodebuild.log 2>&1
 }
 
 say "Building (this takes a minute on a clean checkout)"
@@ -164,17 +164,42 @@ APP_SOURCE="$BUILD_DIR/Build/Products/Release/TokenWidget.app"
 DESTINATION="$HOME/Applications/TokenWidget.app"
 say "Installing to $DESTINATION"
 mkdir -p "$HOME/Applications"
-# Quit a running copy so the bundle can be replaced cleanly.
+# Verify a complete copy before replacing the installed app.
+STAGED="$HOME/Applications/.TokenWidget-install-$$.app"
+trap 'rm -rf "$STAGED"' EXIT
+ditto "$APP_SOURCE" "$STAGED"
+codesign --verify --deep --strict "$STAGED"
+
+if [ -d "$DESTINATION" ]; then
+    pluginkit -r "$DESTINATION/Contents/PlugIns/TokenWidgetExtension.appex" 2>/dev/null || true
+fi
 pkill -x TokenWidget 2>/dev/null || true
-rm -rf "$DESTINATION"
-cp -R "$APP_SOURCE" "$DESTINATION"
+pkill -x TokenWidgetExtension 2>/dev/null || true
+for attempt in {1..30}; do
+    if ! pgrep -x TokenWidget >/dev/null; then break; fi
+    sleep 0.1
+done
+! pgrep -x TokenWidget >/dev/null || die "The running app did not quit."
+# WidgetKit may keep the extension alive after SIGTERM. Terminate that process
+# before replacing its bundle; the host launches the registered replacement.
+pkill -9 -x TokenWidgetExtension 2>/dev/null || true
+if [ -d "$DESTINATION" ]; then
+    rm -rf "$DESTINATION"
+fi
+mv "$STAGED" "$DESTINATION"
+
+# Register this bundle explicitly so macOS selects the newly installed extension.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DESTINATION"
+pluginkit -r "$APP_SOURCE/Contents/PlugIns/TokenWidgetExtension.appex" 2>/dev/null || true
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APP_SOURCE"
+pluginkit -a "$DESTINATION/Contents/PlugIns/TokenWidgetExtension.appex"
 
 say "Launching"
 open "$DESTINATION"
 
 # Give the widget extension a moment to register with the system.
 sleep 3
-if pluginkit -m -p com.apple.widgetkit-extension 2>/dev/null | grep -q tokenwidget; then
+if pluginkit -m -v -i dev.ericbriscoe.tokenwidget.widget 2>/dev/null | grep -Fq "$DESTINATION/Contents/PlugIns/TokenWidgetExtension.appex"; then
     say "Widget registered with macOS"
 else
     warn "The widget did not register yet. It usually appears within a minute; if not, log out and back in."

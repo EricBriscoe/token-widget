@@ -27,6 +27,7 @@ final class UsageStore: ObservableObject {
     private let prices = OpenRouterPriceService()
     private let providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider()]
     private var watcher: DirectoryWatcher?
+    private var refreshTimer: Timer?
     /// Set while a scan is running so filesystem churn during the scan queues
     /// exactly one follow-up rather than a scan per event.
     private var rescanQueued = false
@@ -45,9 +46,17 @@ final class UsageStore: ObservableObject {
     func start() {
         snapshot = store.loadSnapshot()
         if let snapshot { palette = ChartPalette(snapshot: snapshot) }
-        rescan()
         startWatching()
+        rescan()
         refreshPrices()
+        // Reconcile periodically when a filesystem writer misses FSEvents.
+        // Unchanged transcripts are skipped by the incremental scanner.
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.rescan()
+                self?.refreshPrices()
+            }
+        }
     }
 
     /// Pulls published rates from OpenRouter, at most once a day.
@@ -59,7 +68,7 @@ final class UsageStore: ObservableObject {
         let service = prices
         Task { [weak self] in
             guard let catalog = await service.refreshIfNeeded(force: force) else { return }
-            await self?.applyPrices(catalog)
+            self?.applyPrices(catalog)
         }
     }
 
@@ -113,7 +122,7 @@ final class UsageStore: ObservableObject {
     }
 
     private func startWatching() {
-        let roots = providers.flatMap(\.presentRoots)
+        let roots = providers.flatMap(\.roots)
         watcher = DirectoryWatcher(paths: roots) { [weak self] in
             Task { @MainActor [weak self] in self?.rescan() }
         }
@@ -138,6 +147,7 @@ final class UsageStore: ObservableObject {
     /// Confirmed first: Claude Code prunes transcripts on its own schedule, so
     /// any day older than that is only recorded here and cannot be rebuilt.
     func rebuildHistory() {
+        guard canChangeHistory else { return }
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Rebuild history from transcripts?"
@@ -152,13 +162,20 @@ final class UsageStore: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        store.reset()
+        guard canChangeHistory else { return }
+        do {
+            try store.reset()
+        } catch {
+            lastError = "Rebuild failed: \(error.localizedDescription)"
+            return
+        }
         snapshot = nil
         palette = ChartPalette(models: [])
         rescan()
     }
 
     func restorePreviousHistory() {
+        guard canChangeHistory else { return }
         guard let restored = store.restoreBackup() else {
             lastError = "There is no previous history to restore."
             return
@@ -182,12 +199,14 @@ final class UsageStore: ObservableObject {
     }
 
     func importHistory() {
+        guard canChangeHistory else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.message = "Merge a previously exported history into this one."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
+            guard canChangeHistory else { return }
             let merged = try store.importHistory(from: url)
             snapshot = merged
             palette = ChartPalette(snapshot: merged)
@@ -195,6 +214,14 @@ final class UsageStore: ObservableObject {
         } catch {
             lastError = "Import failed: \(error.localizedDescription)"
         }
+    }
+
+    private var canChangeHistory: Bool {
+        guard !isScanning else {
+            lastError = "Wait for the current scan to finish before changing history."
+            return false
+        }
+        return true
     }
 
     func revealDataFolder() {

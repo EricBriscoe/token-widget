@@ -1,6 +1,19 @@
 import Foundation
 
 public enum UsageFormat {
+    /// Missing rates leave a partial cost total; generated tokens stay complete.
+    public static func value(for breakdown: PeriodBreakdown, metric: Metric, compact: Bool = false) -> String {
+        if metric == .cost, breakdown.hasUnpricedModels,
+           breakdown.models.allSatisfy(\.isUnpriced) { return "No rate" }
+        let value = compact
+            ? compactValue(breakdown.value(for: metric), metric: metric)
+            : self.value(breakdown.value(for: metric), metric: metric)
+        guard metric == .cost else { return value }
+        let prefix = breakdown.hasApproximateCost ? "≈" : ""
+        let suffix = breakdown.hasUnpricedModels ? "+" : ""
+        return prefix + value + suffix
+    }
+
     /// `$1,284.30`. Used wherever there is room for the exact figure.
     public static func money(_ value: Double) -> String {
         let formatter = NumberFormatter()

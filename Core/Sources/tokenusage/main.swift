@@ -62,7 +62,7 @@ range: \(snapshot.firstDay.map { "\($0.rawValue)" } ?? "-") to \(snapshot.lastDa
 """)
 
 if !snapshot.unpricedModels.isEmpty {
-    print("unpriced (cost reported as 0): \(snapshot.unpricedModels.joined(separator: ", "))")
+    print("unpriced (excluded from cost): \(snapshot.unpricedModels.joined(separator: ", "))")
 }
 if !snapshot.localModels.isEmpty {
     print("local (no per-token cost): \(snapshot.localModels.joined(separator: ", "))")
@@ -71,7 +71,7 @@ if !snapshot.localModels.isEmpty {
 let query = UsageQuery(snapshot: snapshot, priceBook: priceBook)
 let breakdown = query.breakdown(range, offset: offset)
 
-print("\n\(breakdown.window.title)   \(formatMoney(breakdown.cost))   \(formatTokens(breakdown.totals.output)) generated   \(breakdown.totals.messages) msgs")
+print("\n\(breakdown.window.title)   \(UsageFormat.value(for: breakdown, metric: .cost))   \(formatTokens(breakdown.totals.output)) generated   \(breakdown.totals.messages) msgs")
 print(String(repeating: "-", count: 64))
 
 let peak = breakdown.peak(for: .cost)
@@ -100,7 +100,7 @@ for model in breakdown.models {
     print(String(
         format: "%-22@ %9@  %5.1f%%  in %@  cache-w %@  cache-r %@  out %@%@",
         model.displayName as NSString,
-        formatMoney(model.cost) as NSString,
+        (model.isUnpriced ? "–" : formatMoney(model.cost)) as NSString,
         share,
         formatTokens(model.counts.input) as NSString,
         formatTokens(model.counts.cacheWrite5m + model.counts.cacheWrite1h) as NSString,

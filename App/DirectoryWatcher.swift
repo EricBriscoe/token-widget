@@ -10,10 +10,19 @@ final class DirectoryWatcher {
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "dev.ericbriscoe.tokenwidget.fsevents")
     private let onChange: () -> Void
+    private let requestedPaths: [String]
 
     init?(paths: [URL], latency: CFTimeInterval = 2.0, onChange: @escaping () -> Void) {
-        let existing = paths.filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !existing.isEmpty else { return nil }
+        guard !paths.isEmpty else { return nil }
+        requestedPaths = paths.map { $0.standardizedFileURL.resolvingSymlinksInPath().path }
+        // Watch an existing ancestor so a provider's first session is noticed.
+        let existing = Set(paths.map { requested -> String in
+            var ancestor = requested.standardizedFileURL.resolvingSymlinksInPath()
+            while !FileManager.default.fileExists(atPath: ancestor.path), ancestor.path != "/" {
+                ancestor.deleteLastPathComponent()
+            }
+            return ancestor.path
+        })
         self.onChange = onChange
 
         var context = FSEventStreamContext(
@@ -24,24 +33,40 @@ final class DirectoryWatcher {
             copyDescription: nil
         )
 
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+        let callback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
             guard let info else { return }
-            Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue().onChange()
+            let watcher = Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
+            let changed = Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as! [String]
+            let dropped = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs
+                | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
+            let needsScan = (0..<count).contains { index in
+                if flags[index] & dropped != 0 { return true }
+                let path = URL(fileURLWithPath: changed[index]).resolvingSymlinksInPath().path
+                return watcher.requestedPaths.contains { root in
+                    path == root || path.hasPrefix(root + "/") || root.hasPrefix(path + "/")
+                }
+            }
+            if needsScan { watcher.onChange() }
         }
 
         guard let stream = FSEventStreamCreate(
             kCFAllocatorDefault,
             callback,
             &context,
-            existing.map(\.path) as CFArray,
+            Array(existing) as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             latency,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot)
         ) else { return nil }
 
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, queue)
-        FSEventStreamStart(stream)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+            return nil
+        }
     }
 
     deinit {

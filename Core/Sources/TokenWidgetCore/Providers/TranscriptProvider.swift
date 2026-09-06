@@ -14,6 +14,8 @@ public protocol TranscriptProvider: Sendable {
 /// that is still being appended to.
 public struct ParserState: Codable, Sendable, Equatable {
     public var lastModel: String?
+    var codexTotals: CodexProvider.Parser.Totals?
+    var projectPath: String?
     public init(lastModel: String? = nil) { self.lastModel = lastModel }
 }
 

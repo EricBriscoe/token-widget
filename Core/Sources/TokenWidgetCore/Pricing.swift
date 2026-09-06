@@ -122,6 +122,11 @@ public struct PriceBook: Sendable {
     /// below except `fable-5`, `opus-5` and `sonnet-5`.
     public static let builtIn = PriceBook(
         standard: [
+            // https://developers.openai.com/api/docs/models/gpt-6-astra
+            // Standard rates; daily totals cannot resolve the >272K input tier.
+            "gpt-6-astra": [Tier(from: nil, through: nil, price: ModelPrice(
+                input: 10, output: 50, cacheRead: 1, cacheWrite5m: 12.5, cacheWrite1h: 12.5
+            ))],
             // Frontier tier
             "claude-fable-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 10, output: 50))],
             "claude-mythos-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 10, output: 50))],
@@ -155,6 +160,9 @@ public struct PriceBook: Sendable {
             "claude-haiku-4-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 1, output: 5))]
         ],
         fast: [
+            "gpt-6-astra": [Tier(from: nil, through: nil, price: ModelPrice(
+                input: 20, output: 100, cacheRead: 2, cacheWrite5m: 25, cacheWrite1h: 25
+            ))],
             // Fast mode is a research preview on Opus 5 at premium rates.
             "claude-opus-5": [Tier(from: nil, through: nil, price: ModelPrice(input: 10, output: 50))]
         ],
@@ -167,9 +175,11 @@ public struct PriceBook: Sendable {
 
     /// The built-in rates resolved against whatever catalog is cached on disk.
     ///
-    /// Read once per process. The app rebuilds its own book after a refresh; the
-    /// widget is short-lived enough that reading the cache at launch is current.
-    public static let shared = PriceBook.builtIn.withCatalog(OpenRouterPriceService().cached())
+    /// Read on each access so a widget timeline sees catalog refreshes even
+    /// when the extension process stays alive.
+    public static var shared: PriceBook {
+        PriceBook.builtIn.withCatalog(OpenRouterPriceService().cached())
+    }
 
     init(standard: [String: [Tier]], fast: [String: [Tier]], catalog: PriceCatalog?) {
         self.standard = standard
@@ -203,14 +213,17 @@ public struct PriceBook: Sendable {
         if ModelKey.isUnattributed(model) { return (.unattributed, false, .none) }
         let id = PriceBook.normalize(model).id
         if PriceBook.isLocalModel(id) { return (.local, false, .none) }
+        // The stored daily counts do not retain request sizes needed for
+        // Astra's long-context surcharge.
+        let hasContextTier = id == "gpt-6-astra"
 
         if isFast, let price = resolve(id: id, table: fast, catalogID: "\(id)-fast", provider: provider, day: day) {
-            return (.priced(price.rate), false, price.source)
+            return (.priced(price.rate), hasContextTier, price.source)
         }
         guard let price = resolve(id: id, table: standard, catalogID: id, provider: provider, day: day) else {
             return (.unknown, false, .none)
         }
-        return (.priced(price.rate), isFast, price.source)
+        return (.priced(price.rate), isFast || hasContextTier, price.source)
     }
 
     /// Dated built-in tier, then the catalog, then an open-ended built-in tier.

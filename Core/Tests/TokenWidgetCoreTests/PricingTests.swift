@@ -4,6 +4,23 @@ import XCTest
 final class PricingTests: XCTestCase {
     private let book = PriceBook.current
 
+    func testAstraIsPricedWithoutACatalogAndFlagsContextTierEstimate() throws {
+        let day = DayID(year: 2026, month: 9, day: 5)
+        for fast in [false, true] {
+            let lookup = book.lookup(model: "gpt-6-astra", provider: .codex, fast: fast, on: day)
+            guard case .priced(let price) = lookup.price else { return XCTFail("Astra needs a fallback rate") }
+            let scale = fast ? 2.0 : 1.0
+            XCTAssertEqual(price.inputPerMTok, 10 * scale)
+            XCTAssertEqual(price.cacheReadPerMTok, scale)
+            XCTAssertEqual(price.cacheWrite5mPerMTok, 12.5 * scale)
+            XCTAssertEqual(price.cacheWrite1hPerMTok, 12.5 * scale)
+            XCTAssertEqual(price.outputPerMTok, 50 * scale)
+            XCTAssertEqual(price.cost(for: TokenCounts(input: 1_000_000, cacheRead: 1_000_000, output: 1_000_000)), 61 * scale)
+            XCTAssertEqual(lookup.source, .builtin)
+            XCTAssertTrue(lookup.isApproximate)
+        }
+    }
+
     func testNormalizeStripsDecorations() {
         XCTAssertEqual(PriceBook.normalize("claude-opus-5").id, "claude-opus-5")
         XCTAssertEqual(PriceBook.normalize("claude-opus-5[1m]").id, "claude-opus-5")

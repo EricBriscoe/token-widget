@@ -36,9 +36,6 @@ public struct CodexProvider: TranscriptProvider {
         let provider: Provider
         let filePath: String
         var state: ParserState
-        /// Set when a file only reports cumulative totals, so each event can be
-        /// turned back into a per-turn delta.
-        private var lastCumulative: Totals?
 
         init(provider: Provider, file: URL, state: ParserState) {
             self.provider = provider
@@ -67,6 +64,8 @@ public struct CodexProvider: TranscriptProvider {
                 state.lastModel = model
             }
 
+            if let cwd = entry.payload?.cwd ?? entry.cwd { state.projectPath = cwd }
+
             switch entry.payload?.type ?? entry.type {
             case "token_count": return tokenRecord(from: entry)
             case "web_search_call": return searchRecord(from: entry)
@@ -77,21 +76,31 @@ public struct CodexProvider: TranscriptProvider {
         private func tokenRecord(from entry: Entry) -> UsageRecord? {
             guard let info = entry.payload?.info ?? entry.info else { return nil }
 
+            guard let stamp = entry.timestamp, let timestamp = TimestampParser.parse(stamp) else { return nil }
+            let previous = state.codexTotals
+            if let total = info.total_token_usage {
+                state.codexTotals = total
+                // Rate-limit updates can repeat the last usage at a new timestamp.
+                if total == previous { return nil }
+            }
+
             let usage: Totals
             if let last = info.last_token_usage {
                 usage = last
             } else if let total = info.total_token_usage {
                 // Only cumulative figures available: difference them so the
                 // running total is not re-added on every event.
-                let previous = lastCumulative ?? Totals()
-                lastCumulative = total
-                usage = total.subtracting(previous)
+                // A reset starts a new cumulative sequence.
+                if let previous, total.isLessThan(previous) {
+                    usage = total
+                } else {
+                    usage = total.subtracting(previous ?? Totals())
+                }
             } else {
                 return nil
             }
 
             guard usage.hasAnyTokens else { return nil }
-            guard let stamp = entry.timestamp, let timestamp = TimestampParser.parse(stamp) else { return nil }
 
             let input = usage.input_tokens ?? 0
             let cached = usage.cached_input_tokens ?? 0
@@ -113,7 +122,7 @@ public struct CodexProvider: TranscriptProvider {
                 key: ModelKey(provider: provider, model: currentModel, fast: false),
                 counts: counts,
                 dedupKey: identity("turn", stamp, "\(input)|\(counts.output)|\(cached)|\(written)"),
-                projectPath: entry.payload?.cwd ?? entry.cwd
+                projectPath: state.projectPath
             )
         }
 
@@ -135,7 +144,7 @@ public struct CodexProvider: TranscriptProvider {
                 key: ModelKey(provider: provider, model: currentModel, fast: false),
                 counts: counts,
                 dedupKey: identity("search", stamp, entry.payload?.action?.query ?? ""),
-                projectPath: entry.payload?.cwd ?? entry.cwd
+                projectPath: state.projectPath
             )
         }
 
@@ -189,7 +198,7 @@ public struct CodexProvider: TranscriptProvider {
             let last_token_usage: Totals?
         }
 
-        struct Totals: Decodable {
+        struct Totals: Codable, Sendable, Equatable {
             var input_tokens: Int?
             var cached_input_tokens: Int?
             var cache_write_input_tokens: Int?
@@ -212,6 +221,11 @@ public struct CodexProvider: TranscriptProvider {
 
             var hasAnyTokens: Bool {
                 (input_tokens ?? 0) > 0 || (output_tokens ?? 0) > 0
+            }
+
+            func isLessThan(_ other: Totals) -> Bool {
+                (input_tokens ?? 0) < (other.input_tokens ?? 0)
+                    || (output_tokens ?? 0) < (other.output_tokens ?? 0)
             }
 
             func subtracting(_ other: Totals) -> Totals {

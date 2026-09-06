@@ -14,7 +14,7 @@ cd token-widget
 ./install.sh
 ```
 
-The script checks for Xcode, installs XcodeGen with Homebrew if it's missing, detects your Apple Developer team from your keychain, builds a Release binary, installs it to `~/Applications`, and launches it. It takes about a minute on a clean checkout.
+The script checks for Xcode, installs XcodeGen with Homebrew if it's missing, detects your Apple Developer team from your keychain, makes a clean Release build, verifies its signature, installs it to `~/Applications`, registers the widget extension, and launches it. Reinstalling preserves usage history and preferences. It takes about a minute on a clean checkout.
 
 You need macOS 14 or later and an Apple ID added to Xcode under Settings > Accounts. A free account works. Signing is required because the app and the widget exchange data through an App Group, and App Group IDs are prefixed with a team ID.
 
@@ -31,7 +31,7 @@ Four ranges are available, each bucketed so the bar count stays readable: week b
 
 The widget shows cost or tokens. The token count is `output_tokens` only, what the model generated; cost prices every lane: input, cache writes, cache reads, and output.
 
-The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
+The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. A one-minute incremental rescan catches writes missed by filesystem notifications. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
 
 ## Where the numbers come from
 
@@ -68,9 +68,11 @@ If the fetch fails, the cached copy stands rather than dropping every model to u
 
 Codex writes rollout transcripts to `~/.codex/sessions` and `~/.codex/archived_sessions`, one JSONL file per session. The `token_count` events carry OpenAI-style counts, where `cached_input_tokens` and `cache_write_input_tokens` are subsets of `input_tokens` and `reasoning_output_tokens` a subset of `output_tokens`. Those get unpacked into the same lanes as Claude's so the two chart together and one total means one thing.
 
-Two Codex-specific details:
+Codex-specific details:
 
 **Forked sessions.** Resuming or forking a session writes a *new* rollout file that replays the earlier turns verbatim. Keying dedup on the file path counted those turns once per file; on a 537-file corpus 122 turn identities appear in two files each. The key is now the millisecond timestamp plus the exact token split, with no path in it.
+
+**Repeated usage updates.** A rate-limit update can repeat the previous token counts with a new timestamp. Repeated cumulative totals are ignored, including after the app restarts. When only cumulative usage is available, the reader subtracts its saved baseline.
 
 **Web searches.** Counted from the `web_search_call` response item, not the `web_search_end` UI event that reports the same search; counting both would bill each one twice. A call that fans out into several queries counts once, matching how the rate card is quoted.
 
@@ -133,7 +135,9 @@ A model keeps its colour across every range and period. The palette is assigned 
 
 ## Limits
 
-The Codex reader is written against Codex's documented rollout format and **has not been checked against real transcripts**, because this machine has `~/.codex` but no recorded sessions. It's strict on purpose: anything it doesn't recognise is skipped, so an unexpected format shows up as no Codex usage rather than as wrong numbers. If you use Codex, check its figures against your logs before trusting them, and open an issue with a sample line.
+The Codex reader is checked against local rollout transcripts, including GPT-6 Astra sessions. It ignores repeated cumulative totals and saves the cumulative baseline between scans. Unsupported event shapes are skipped.
+
+If a model has no published rate, its output tokens still appear in Tokens view. Cost view marks partial totals with `+`, shows a dash for unpriced models, and says `No rate` when none of the period's models can be priced. Astra has a built-in fallback from [OpenAI's published rates](https://developers.openai.com/api/docs/models/gpt-6-astra). Its cost is marked as estimated because daily aggregates cannot reconstruct per-request pricing tiers.
 
 Cost is computed from published list prices. It's what the usage would cost at those rates, not a bill. Subscription plans, negotiated discounts, and promotional credits aren't modelled.
 

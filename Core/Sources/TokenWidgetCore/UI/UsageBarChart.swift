@@ -235,13 +235,13 @@ public struct UsageLegend: View {
 
                     Spacer(minLength: 4)
 
-                    if showsShare, total > 0 {
+                    if showsShare, total > 0, !(metric == .cost && model.isUnpriced) {
                         Text("\(Int((model.value(for: metric) / total * 100).rounded()))%")
                             .monospacedDigit()
                             .foregroundStyle(ChartColor.mutedInk)
                     }
 
-                    Text(UsageFormat.compactValue(model.value(for: metric), metric: metric))
+                    Text(metric == .cost && model.isUnpriced ? "–" : UsageFormat.compactValue(model.value(for: metric), metric: metric))
                         .monospacedDigit()
                         .foregroundStyle(ChartColor.primaryInk)
                 }

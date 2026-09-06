@@ -73,7 +73,15 @@ public final class UsageScanner {
 
         var scanState = store.loadScanState()
         var dedup = store.loadDedupIndex()
-        var aggregator = UsageAggregator(resuming: previous?.days ?? [], calendar: calendar)
+        // Restores, imports, or missing checkpoints need a full transcript pass.
+        // Merge those totals with retained history after scanning so overlapping
+        // records are not counted twice and pruned days remain available.
+        let rebuilding = previous == nil || scanState.files.isEmpty || dedup.count == 0
+        if rebuilding {
+            scanState = ScanState()
+            dedup = DedupIndex()
+        }
+        var aggregator = UsageAggregator(resuming: rebuilding ? [] : previous?.days ?? [], calendar: calendar)
 
         let files = discoverFiles()
         var processed = 0
@@ -105,7 +113,10 @@ public final class UsageScanner {
             // Resume mid-file only when it is the same file, grown in place.
             var startOffset: Int64 = 0
             var parserState: ParserState?
-            if let existing, existing.inode == file.inode, file.size >= existing.offset {
+            // A changed file that stayed the same size or shrank may have been
+            // rewritten in place. Its inode alone does not make its saved
+            // offset or parser state safe to reuse.
+            if let existing, existing.inode == file.inode, file.size > existing.size {
                 startOffset = existing.offset
                 parserState = existing.parser
             }
@@ -142,7 +153,13 @@ public final class UsageScanner {
         let livePaths = Set(files.map(\.url.path))
         scanState.files = scanState.files.filter { livePaths.contains($0.key) }
 
-        let days = aggregator.daySummaries()
+        let scannedDays = aggregator.daySummaries()
+        let days: [DaySummary]
+        if rebuilding, let previous {
+            days = UsageSnapshot.merging(previous, UsageSnapshot(days: scannedDays)).days
+        } else {
+            days = scannedDays
+        }
         let classification = classifyModels(in: days)
 
         let snapshot = UsageSnapshot(

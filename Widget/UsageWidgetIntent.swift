@@ -28,7 +28,7 @@ enum MetricOption: String, AppEnum {
     static var typeDisplayRepresentation: TypeDisplayRepresentation { "Measure" }
 
     static var caseDisplayRepresentations: [MetricOption: DisplayRepresentation] {
-        [.cost: "Cost", .tokens: "Tokens"]
+        [.cost: "Estimated API cost", .tokens: "Generated tokens"]
     }
 
     var metric: Metric { Metric(rawValue: rawValue) ?? .cost }

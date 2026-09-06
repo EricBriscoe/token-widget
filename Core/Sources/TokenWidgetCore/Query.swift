@@ -115,8 +115,8 @@ public struct ModelTotal: Sendable, Identifiable {
 public struct PeriodBreakdown: Sendable {
     public let window: PeriodWindow
     public let points: [SeriesPoint]
-    /// Sorted by cost descending, then tokens, so colours stay stable across
-    /// buckets and the legend order matches the stack order.
+    /// Sorted by the selected metric so the legend shows the largest contributors.
+    /// Stack order follows this list; model colors come from the shared palette.
     public let models: [ModelTotal]
     public let totals: TokenCounts
     public let cost: Double
@@ -306,6 +306,9 @@ public struct UsageQuery: Sendable {
         let models = perModel
             .map { ModelTotal(key: $0.key, counts: $0.value.counts, cost: $0.value.cost, pricing: $0.value.pricing, isApproximate: $0.value.approximate) }
             .sorted { lhs, rhs in
+                let left = lhs.value(for: metric)
+                let right = rhs.value(for: metric)
+                if left != right { return left > right }
                 if lhs.cost != rhs.cost { return lhs.cost > rhs.cost }
                 if lhs.counts.billedTotal != rhs.counts.billedTotal {
                     return lhs.counts.billedTotal > rhs.counts.billedTotal
