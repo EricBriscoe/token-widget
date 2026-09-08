@@ -34,6 +34,7 @@ public struct PriceCatalog: Codable, Sendable, Equatable {
         switch provider {
         case .claudeCode: return "anthropic"
         case .codex: return "openai"
+        case .pi: return "" // Pi stores a fully qualified vendor/model ID.
         }
     }
 
@@ -41,6 +42,7 @@ public struct PriceCatalog: Codable, Sendable, Equatable {
     private static let fallbackVendors = ["anthropic", "openai"]
 
     public func price(for id: String, provider: Provider?) -> ModelPrice? {
+        if provider == .pi { return models[id] }
         if let provider, let hit = models["\(PriceCatalog.vendor(for: provider))/\(id)"] {
             return hit
         }

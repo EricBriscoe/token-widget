@@ -163,7 +163,7 @@ public struct UsageBarChart: View {
                     bucket: index,
                     start: 0,
                     end: total,
-                    color: uniformColor ?? ChartColor.slots[0],
+                    color: uniformColor ?? ChartColor.aggregate,
                     cornerRadius: 4
                 ))
                 continue
@@ -195,8 +195,8 @@ public struct UsageBarChart: View {
 
 /// Legend rows carrying the value beside each swatch.
 ///
-/// This is also the relief for the light-mode contrast warning on three of the
-/// palette slots: identity is never left to hue alone.
+/// Model identity is never left to hue alone, especially in crowded charts or
+/// when colour-vision differences make some swatches harder to distinguish.
 public struct UsageLegend: View {
     private let models: [ModelTotal]
     private let palette: ChartPalette

@@ -67,6 +67,29 @@ final class ScannerTests: XCTestCase {
         try handle.close()
     }
 
+    func testAddingPiToExistingCheckpointKeepsCLITotals() throws {
+        try write(line(request: "existing") + "\n", to: "one.jsonl")
+        let original = try makeScanner().scan()
+        XCTAssertFalse(store.loadScanState().files.isEmpty)
+        XCTAssertGreaterThan(store.loadDedupIndex().count, 0)
+        let piRoot = home.appendingPathComponent(".pi/agent/sessions/demo")
+        try FileManager.default.createDirectory(at: piRoot, withIntermediateDirectories: true)
+        let piLine = #"{"type":"message","id":"newpi","timestamp":"2026-09-07T12:00:00Z","message":{"role":"assistant","provider":"openai-codex","model":"gpt-6-astra","usage":{"output":250}}}"#
+        try (piLine + "\n").write(to: piRoot.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+        let scanner = UsageScanner(providers: [ClaudeCodeProvider(home: home), PiProvider(home: home)],
+                                   store: store, calendar: utc, priceBook: .builtIn)
+        let updated = try scanner.scan()
+        XCTAssertEqual(updated.days.first, original.days.first)
+        XCTAssertEqual(updated.days.last?.totals.output, 250)
+        XCTAssertEqual(updated.totalMessages, 2)
+        let oldColors = try XCTUnwrap(original.modelColors)
+        XCTAssertFalse(oldColors.isEmpty)
+        for (identity, color) in oldColors { XCTAssertEqual(updated.modelColors?[identity], color) }
+        let repeated = try scanner.scan()
+        XCTAssertEqual(repeated.totalMessages, 2)
+        XCTAssertEqual(repeated.modelColors, updated.modelColors)
+    }
+
     func testScansAFreshTranscript() throws {
         try write([line(request: "a"), line(request: "b")].joined(separator: "\n") + "\n", to: "one.jsonl")
 

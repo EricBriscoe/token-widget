@@ -40,7 +40,7 @@ public final class UsageScanner {
     private let chunkSize: Int
 
     public init(
-        providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider()],
+        providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider(), PiProvider()],
         store: SharedStore = SharedStore(),
         calendar: Calendar = .current,
         priceBook: PriceBook = .shared,
@@ -170,7 +170,11 @@ public final class UsageScanner {
             localModels: classification.local,
             totalMessages: days.reduce(0) { $0 + $1.totals.messages },
             scanDuration: Date().timeIntervalSince(started),
-            filesScanned: files.count
+            filesScanned: files.count,
+            modelColors: ModelColorAllocator.assign(
+                models: days.flatMap { $0.entries.map(\.key) },
+                preserving: previous?.modelColors ?? [:]
+            )
         )
 
         try store.save(snapshot: snapshot, scanState: scanState, dedup: dedup)

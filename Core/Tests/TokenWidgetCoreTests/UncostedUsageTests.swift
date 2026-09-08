@@ -185,20 +185,19 @@ final class UncostedUsageTests: XCTestCase {
 
     // MARK: Palette
 
-    /// The reserved ID starts with an underscore, which sorts ahead of every
-    /// lowercase model name. Left alone it would take a colour slot off a model
-    /// with a nonzero cost.
-    func testUnattributedTakesTheLastColourSlot() {
-        let keys = [
-            ModelKey(provider: .codex, model: ModelKey.unattributed),
+    /// Unattributed usage must not change fresh assignments for real models.
+    func testUnattributedDoesNotDisplaceModelColours() {
+        let real = [
             ModelKey(provider: .codex, model: "codex-auto-review"),
             ModelKey(provider: .claudeCode, model: "claude-opus-5")
         ]
-        let palette = ChartPalette(models: keys)
-
-        XCTAssertEqual(palette.color(for: keys[2]), ChartColor.slots[0], "canonical model leads")
-        XCTAssertEqual(palette.color(for: keys[1]), ChartColor.slots[1])
-        XCTAssertEqual(palette.color(for: keys[0]), ChartColor.slots[2], "unattributed sorts last")
+        let unattributed = ModelKey(provider: .codex, model: ModelKey.unattributed)
+        let baseline = ChartPalette(models: real)
+        let combined = ChartPalette(models: [unattributed] + real)
+        for key in real {
+            XCTAssertEqual(combined.swatch(for: key), baseline.swatch(for: key))
+            XCTAssertNotEqual(combined.swatch(for: key), combined.swatch(for: unattributed))
+        }
     }
 
     // MARK: Wording

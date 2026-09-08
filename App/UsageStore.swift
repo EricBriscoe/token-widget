@@ -25,7 +25,8 @@ final class UsageStore: ObservableObject {
 
     private let store = SharedStore()
     private let prices = OpenRouterPriceService()
-    private let providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider()]
+    private let providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider(), PiProvider()]
+    private var widgetReloadPolicy = WidgetReloadPolicy()
     private var watcher: DirectoryWatcher?
     private var refreshTimer: Timer?
     /// Set while a scan is running so filesystem churn during the scan queues
@@ -110,9 +111,9 @@ final class UsageStore: ObservableObject {
         if let result {
             snapshot = result
             palette = ChartPalette(snapshot: result)
-            // Push the new numbers to any placed widget rather than waiting for
-            // its own timeline to come round.
-            WidgetCenter.shared.reloadAllTimelines()
+            if widgetReloadPolicy.shouldReload(snapshot: result, pricesFetchedAt: pricesFetchedAt) {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
         }
 
         if rescanQueued {

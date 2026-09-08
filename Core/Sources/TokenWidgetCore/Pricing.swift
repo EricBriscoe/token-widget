@@ -212,6 +212,20 @@ public struct PriceBook: Sendable {
     ) -> (price: PriceLookup, isApproximate: Bool, source: PriceSource) {
         if ModelKey.isUnattributed(model) { return (.unattributed, false, .none) }
         let id = PriceBook.normalize(model).id
+        if provider == .pi {
+            // Pi can call multiple vendors. Preserve that identity rather than
+            // treating every vendor/model ID as local or guessing a leaf rate.
+            for (prefix, source) in [("openai/", Provider.codex), ("anthropic/", Provider.claudeCode)] {
+                if id.hasPrefix(prefix) {
+                    let result = lookup(model: String(id.dropFirst(prefix.count)), provider: source, fast: isFast, on: day)
+                    return (result.price, true, result.source)
+                }
+            }
+            if let rate = catalog?.price(for: id, provider: .pi) {
+                return (.priced(rate), true, .catalog)
+            }
+            return (.unknown, false, .none)
+        }
         if PriceBook.isLocalModel(id) { return (.local, false, .none) }
         // The stored daily counts do not retain request sizes needed for
         // Astra's long-context surcharge.

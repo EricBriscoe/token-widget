@@ -285,7 +285,7 @@ public struct UsageQuery: Sendable {
                 case .local, .unknown, .unattributed: cost = 0
                 }
 
-                let key = entry.key
+                let key = entry.key.displayKey
                 var bucket = perBucket[index][key] ?? (0, TokenCounts())
                 bucket.cost += cost
                 bucket.counts += entry.counts
@@ -295,7 +295,13 @@ public struct UsageQuery: Sendable {
                 model.cost += cost
                 model.counts += entry.counts
                 model.approximate = model.approximate || lookup.isApproximate
-                model.pricing = lookup.price
+                // A missing rate in any source/day makes this a partial total;
+                // iteration order must not hide it behind a later priced entry.
+                if model.pricing == .unknown || lookup.price == .unknown {
+                    model.pricing = .unknown
+                } else if case .priced = lookup.price {
+                    model.pricing = lookup.price
+                }
                 perModel[key] = model
 
                 totals += entry.counts

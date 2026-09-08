@@ -1,6 +1,6 @@
 # Token Widget
 
-A macOS desktop widget that charts what you spend on LLM coding agents, read straight from the transcripts they already write to disk. No API keys, no account linking. Reads Claude Code and Codex.
+A macOS desktop widget that charts what you spend on LLM coding agents, read straight from the transcripts they already write to disk. No API keys, no account linking. Reads Claude Code, Codex, and Pi.
 
 The only network request it makes is a once-a-day fetch of OpenRouter's public price list, which carries no identifier and nothing about your usage. Everything else stays on the machine.
 
@@ -31,7 +31,7 @@ Four ranges are available, each bucketed so the bar count stays readable: week b
 
 The widget shows cost or tokens. The token count is `output_tokens` only, what the model generated; cost prices every lane: input, cache writes, cache reads, and output.
 
-The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. A one-minute incremental rescan catches writes missed by filesystem notifications. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
+The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. A one-minute incremental rescan catches writes missed by filesystem notifications. Widget reload requests are coalesced to at most once per 15 minutes when usage or prices change; macOS controls the actual refresh timing. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
 
 ## Where the numbers come from
 
@@ -77,6 +77,12 @@ Codex-specific details:
 **Web searches.** Counted from the `web_search_call` response item, not the `web_search_end` UI event that reports the same search; counting both would bill each one twice. A call that fans out into several queries counts once, matching how the rate card is quoted.
 
 Models served locally cost nothing per token and are charted but not billed. They are recognised by a Hugging Face repo path (`unsloth/Qwen3.6-27B-GGUF`) or an Ollama `name:tag` (`gpt-oss:20b`); no hosted model ID from either vendor uses `/` or `:`.
+
+### Pi
+
+Pi assistant usage is read from `~/.pi/agent/sessions/`, including nested native child sessions. Forked copies are deduplicated by entry identity and timestamp. Input, cache reads, cache writes, and output are already separate lanes; reasoning is not added to output again. At display time, usage for the same model is combined across Pi and the CLIs, including fast/standard tiers; each source is still priced separately before summing.
+
+Only native assistant message records are counted. Compaction summaries, tool-result usage, external-agent artifact formats, and sessions outside this directory are not included. Costs are estimates: Pi does not retain cache TTL or priority-tier details in these usage records. Unknown vendors/models remain unpriced, not free.
 
 ## History outlives the transcripts
 
@@ -129,9 +135,9 @@ To build under your own Apple Developer team, change `DEVELOPMENT_TEAM` in `proj
 
 ## Chart design
 
-Series colours come from an eight-hue categorical palette validated for colour-vision deficiency: every adjacent pair clears ΔE 8 in OKLab under protanopia, deuteranopia, and tritanopia, in both light and dark mode. Three of the light-mode hues fall below 3:1 contrast against the surface, so every chart also ships the values as text in the legend and the breakdown table. Identity never rests on hue alone.
+Each model has one series and one colour, regardless of harness. Colours are generated in OKLCH and chosen to maximize separation in OKLab, with additional scoring under protanopia, deuteranopia, and tritanopia simulation. Light/dark variants share a hue and each meets 3:1 contrast against its chart surface. There is no model-name list, eight-colour limit, or shared-gray fallback.
 
-A model keeps its colour across every range and period. The palette is assigned from every model in the snapshot rather than the ones currently visible, so changing the date range never repaints a series you've already learned.
+Assignments are saved with history and retained when new models appear, across restarts, ranges, and exports. Imports preserve existing local assignments and reassign incoming collisions. Distinct models never intentionally reuse an exact swatch in either appearance, but large palettes inevitably contain similar-looking colours; legends and numeric breakdowns remain essential.
 
 ## Limits
 

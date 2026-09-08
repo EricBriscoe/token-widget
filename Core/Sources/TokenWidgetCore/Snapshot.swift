@@ -47,7 +47,7 @@ public struct DaySummary: Codable, Sendable, Hashable {
 /// The aggregated history the widget reads. Small enough (a few hundred KB for
 /// years of data) to decode inside a widget extension's memory budget.
 public struct UsageSnapshot: Codable, Sendable {
-    public static let currentVersion = 1
+    public static let currentVersion = 3 // Persists model colours; older apps must not discard them.
 
     public var version: Int
     public var generatedAt: Date
@@ -64,6 +64,8 @@ public struct UsageSnapshot: Codable, Sendable {
     public var totalMessages: Int
     public var scanDuration: TimeInterval
     public var filesScanned: Int
+    /// Optional for pre-palette histories. The next scan assigns and saves it.
+    public var modelColors: [String: ModelColor]?
 
     public init(
         version: Int = UsageSnapshot.currentVersion,
@@ -74,7 +76,8 @@ public struct UsageSnapshot: Codable, Sendable {
         localModels: [String] = [],
         totalMessages: Int = 0,
         scanDuration: TimeInterval = 0,
-        filesScanned: Int = 0
+        filesScanned: Int = 0,
+        modelColors: [String: ModelColor]? = nil
     ) {
         self.version = version
         self.generatedAt = generatedAt
@@ -85,6 +88,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.totalMessages = totalMessages
         self.scanDuration = scanDuration
         self.filesScanned = filesScanned
+        self.modelColors = modelColors
     }
 
     public var isEmpty: Bool { days.isEmpty }
@@ -120,6 +124,17 @@ public struct UsageSnapshot: Codable, Sendable {
             }
             .sorted { $0.day < $1.day }
 
+        // Keep this machine's established colours. Imported assignments may be
+        // reused only if they do not collide in either appearance.
+        var colors = ModelColorAllocator.assign(models: [], preserving: lhs.modelColors ?? [:])
+        for (identity, color) in (rhs.modelColors ?? [:]).sorted(by: { $0.key < $1.key }) {
+            if colors[identity] == nil, color.isUsable,
+               !colors.values.contains(where: { $0.light == color.light || $0.dark == color.dark }) {
+                colors[identity] = color
+            }
+        }
+        colors = ModelColorAllocator.assign(models: days.flatMap { $0.entries.map(\.key) }, preserving: colors)
+
         return UsageSnapshot(
             generatedAt: max(lhs.generatedAt, rhs.generatedAt),
             days: days,
@@ -128,7 +143,8 @@ public struct UsageSnapshot: Codable, Sendable {
             localModels: Array(Set(lhs.localModels + rhs.localModels)).sorted(),
             totalMessages: days.reduce(0) { $0 + $1.totals.messages },
             scanDuration: 0,
-            filesScanned: max(lhs.filesScanned, rhs.filesScanned)
+            filesScanned: max(lhs.filesScanned, rhs.filesScanned),
+            modelColors: colors
         )
     }
 }

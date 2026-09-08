@@ -37,7 +37,7 @@ enum MetricOption: String, AppEnum {
 struct UsageWidgetIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Token Usage" }
     static var description: IntentDescription {
-        IntentDescription("Token usage and spend from your local Claude Code and Codex transcripts.")
+        IntentDescription("Token usage and spend from your local Claude Code, Codex, and Pi transcripts.")
     }
 
     @Parameter(title: "Range", default: .week)

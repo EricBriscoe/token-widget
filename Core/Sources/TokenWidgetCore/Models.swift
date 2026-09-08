@@ -4,11 +4,13 @@ import Foundation
 public enum Provider: String, Codable, Sendable, CaseIterable {
     case claudeCode = "claude-code"
     case codex = "codex"
+    case pi = "pi"
 
     public var displayName: String {
         switch self {
         case .claudeCode: return "Claude Code"
         case .codex: return "Codex"
+        case .pi: return "Pi"
         }
     }
 }
@@ -117,10 +119,29 @@ public struct ModelKey: Codable, Sendable, Hashable {
         model == ModelKey.unattributed || model == ModelKey.legacyUnattributed
     }
 
+    /// Chart identity is the model, not the harness or billing speed. Raw keys
+    /// stay in history so costs can still be computed per source and tier.
+    public var displayKey: ModelKey {
+        let id = PriceBook.normalize(model).id
+        for (prefix, vendor) in [("openai/", Provider.codex), ("anthropic/", Provider.claudeCode)] {
+            if id.hasPrefix(prefix) {
+                return ModelKey(provider: vendor, model: String(id.dropFirst(prefix.count)))
+            }
+        }
+        return ModelKey(provider: provider, model: id)
+    }
+
+    /// Stable, vendor-qualified identity for persisted chart colours.
+    var colorIdentity: String {
+        let key = displayKey
+        return "\(key.provider.rawValue)|\(key.model)"
+    }
+
     /// Human-facing name: `claude-opus-5` becomes `Opus 5`.
     public var displayName: String {
         if isUnattributed { return "Unattributed" }
-        let base = ModelKey.prettify(model)
+        let key = displayKey
+        let base = key.provider == .pi ? key.model : ModelKey.prettify(key.model)
         return fast ? "\(base) (fast)" : base
     }
 
