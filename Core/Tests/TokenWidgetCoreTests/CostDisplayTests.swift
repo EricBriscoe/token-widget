@@ -37,6 +37,20 @@ final class CostDisplayTests: XCTestCase {
         XCTAssertNotEqual(UsageFormat.value(for: period, metric: .cost), "No rate")
     }
 
+    func testUnattributedUsageKeepsCostIncompleteAndTokensVisible() {
+        for model in [ModelKey.unattributed, "unknown"] {
+            let onlyUnattributed = breakdown(models: [model])
+            XCTAssertFalse(onlyUnattributed.hasUnpricedModels)
+            XCTAssertTrue(onlyUnattributed.hasUncostedUsage)
+            XCTAssertEqual(UsageFormat.value(for: onlyUnattributed, metric: .cost), "No rate")
+            XCTAssertEqual(UsageFormat.value(for: onlyUnattributed, metric: .tokens), "100")
+
+            let mixed = breakdown(models: ["gpt-6-astra", model])
+            XCTAssertTrue(UsageFormat.value(for: mixed, metric: .cost).hasSuffix("+"))
+            XCTAssertEqual(UsageFormat.value(for: mixed, metric: .tokens), "200")
+        }
+    }
+
     func testLocalCostsRemainZero() {
         let period = breakdown(models: ["gpt-oss:20b"])
         XCTAssertFalse(period.hasUnpricedModels)

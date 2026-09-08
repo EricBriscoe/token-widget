@@ -3,14 +3,14 @@ import Foundation
 public enum UsageFormat {
     /// Missing rates leave a partial cost total; generated tokens stay complete.
     public static func value(for breakdown: PeriodBreakdown, metric: Metric, compact: Bool = false) -> String {
-        if metric == .cost, breakdown.hasUnpricedModels,
-           breakdown.models.allSatisfy(\.isUnpriced) { return "No rate" }
+        if metric == .cost, breakdown.hasUncostedUsage,
+           breakdown.models.allSatisfy(\.isUncosted) { return "No rate" }
         let value = compact
             ? compactValue(breakdown.value(for: metric), metric: metric)
             : self.value(breakdown.value(for: metric), metric: metric)
         guard metric == .cost else { return value }
         let prefix = breakdown.hasApproximateCost ? "≈" : ""
-        let suffix = breakdown.hasUnpricedModels ? "+" : ""
+        let suffix = breakdown.hasUncostedUsage ? "+" : ""
         return prefix + value + suffix
     }
 

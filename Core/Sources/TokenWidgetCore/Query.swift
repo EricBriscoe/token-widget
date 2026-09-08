@@ -101,6 +101,7 @@ public struct ModelTotal: Sendable, Identifiable {
     public var displayName: String { key.displayName }
     public var isUnpriced: Bool { pricing == .unknown }
     public var isUnattributed: Bool { pricing == .unattributed }
+    public var isUncosted: Bool { isUnpriced || isUnattributed }
     public var isLocal: Bool { pricing == .local }
 
     public func value(for metric: Metric) -> Double {
@@ -130,6 +131,7 @@ public struct PeriodBreakdown: Sendable {
     public var unattributedModels: [ModelTotal] { models.filter(\.isUnattributed) }
 
     public var hasUnpricedModels: Bool { !unpricedModels.isEmpty }
+    public var hasUncostedUsage: Bool { models.contains(\.isUncosted) }
     public var hasApproximateCost: Bool { models.contains(\.isApproximate) }
     public var isEmpty: Bool { totals.messages == 0 }
 

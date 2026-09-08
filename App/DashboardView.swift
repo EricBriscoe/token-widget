@@ -218,10 +218,11 @@ struct DashboardView: View {
                             Text(model.displayName)
                             if model.isLocal { tag("local") }
                             if model.isUnpriced { tag("no rate") }
+                            if model.isUnattributed { tag("no model") }
                             if model.isApproximate { tag("estimated") }
                         }
-                        Text(model.isUnpriced ? "–" : UsageFormat.money(model.cost))
-                        Text(headlineValue > 0 && !(store.metric == .cost && model.isUnpriced) ? "\(Int((model.value(for: store.metric) / headlineValue * 100).rounded()))%" : "–")
+                        Text(model.isUncosted ? "–" : UsageFormat.money(model.cost))
+                        Text(headlineValue > 0 && !(store.metric == .cost && model.isUncosted) ? "\(Int((model.value(for: store.metric) / headlineValue * 100).rounded()))%" : "–")
                         Text(UsageFormat.tokens(model.counts.input))
                         Text(UsageFormat.tokens(model.counts.cacheWrite5m + model.counts.cacheWrite1h))
                         Text(UsageFormat.tokens(model.counts.cacheRead))
