@@ -42,6 +42,26 @@ public struct PriceCatalog: Codable, Sendable, Equatable {
     private static let fallbackVendors = ["anthropic", "openai"]
 
     public func price(for id: String, provider: Provider?) -> ModelPrice? {
+        // Transcripts spell point releases with a dash (`claude-fable-5-1`); the
+        // feed keys them with a dot (`anthropic/claude-fable-5.1`). Try the exact
+        // id first, then the dotted spelling of a trailing `-N-M` version.
+        for candidate in PriceCatalog.spellings(of: id) {
+            if let hit = price(forExact: candidate, provider: provider) { return hit }
+        }
+        return nil
+    }
+
+    static func spellings(of id: String) -> [String] {
+        let parts = id.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 3,
+              let minor = parts.last, !minor.isEmpty, minor.allSatisfy(\.isNumber),
+              let major = parts.dropLast().last, !major.isEmpty, major.allSatisfy(\.isNumber)
+        else { return [id] }
+        let dotted = parts.dropLast(2).joined(separator: "-") + "-\(major).\(minor)"
+        return [id, dotted]
+    }
+
+    private func price(forExact id: String, provider: Provider?) -> ModelPrice? {
         if provider == .pi { return models[id] }
         if let provider, let hit = models["\(PriceCatalog.vendor(for: provider))/\(id)"] {
             return hit

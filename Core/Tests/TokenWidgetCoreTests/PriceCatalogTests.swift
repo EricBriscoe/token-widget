@@ -16,6 +16,8 @@ final class PriceCatalogTests: XCTestCase {
         "web_search":"0.01","input_cache_read":"0.000001"}},
       {"id":"anthropic/claude-sonnet-5","pricing":{"prompt":"0.000002","completion":"0.00001",
         "web_search":"0.01","input_cache_read":"0.0000002"}},
+      {"id":"anthropic/claude-fable-5.1","pricing":{"prompt":"0.00001","completion":"0.00005",
+        "web_search":"0.01","input_cache_read":"0.00000025","input_cache_write":"0.0000125"}},
       {"id":"anthropic/claude-opus-5:batch","pricing":{"prompt":"0.0000025","completion":"0.0000125"}},
       {"id":"someone/free-thing","pricing":{"prompt":"0","completion":"0"}},
       {"id":"openai/gpt-4o-mini","pricing":{"prompt":"0.00000015","completion":"0.0000006"}},
@@ -25,6 +27,25 @@ final class PriceCatalogTests: XCTestCase {
 
     private func catalog(now: Date = Date(timeIntervalSince1970: 1_786_000_000)) throws -> PriceCatalog {
         try XCTUnwrap(OpenRouterPriceService.parse(Data(feed.utf8), now: now))
+    }
+
+    // MARK: - Version spelling
+
+    /// Transcripts write point releases with a dash (`claude-fable-5-1`) while the
+    /// feed keys them with a dot (`anthropic/claude-fable-5.1`). The dashed
+    /// spelling must still find the rate, from Claude Code and via Pi alike.
+    func testDashedPointReleaseFindsTheDottedFeedKey() throws {
+        let direct = try XCTUnwrap(catalog().price(for: "claude-fable-5-1", provider: .claudeCode))
+        XCTAssertEqual(direct.inputPerMTok, 10, accuracy: 0.0001)
+        XCTAssertEqual(direct.cacheReadPerMTok, 0.25, accuracy: 0.0001)
+        let viaPi = try XCTUnwrap(catalog().price(for: "anthropic/claude-fable-5-1", provider: .pi))
+        XCTAssertEqual(viaPi.outputPerMTok, 50, accuracy: 0.0001)
+        let day = DayID(year: 2026, month: 9, day: 16)
+        let book = PriceBook.builtIn.withCatalog(try catalog())
+        guard case .priced(let rate) = book.lookup(model: "claude-fable-5-1", provider: .claudeCode, fast: false, on: day).price
+        else { return XCTFail("Fable 5.1 must price from the feed") }
+        XCTAssertEqual(rate.outputPerMTok, 50, accuracy: 0.0001)
+        XCTAssertNil(try catalog().price(for: "claude-fable-5-2", provider: .claudeCode), "an unlisted point release stays unpriced")
     }
 
     // MARK: - Parsing
