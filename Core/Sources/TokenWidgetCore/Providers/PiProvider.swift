@@ -1,7 +1,8 @@
 import Foundation
 
 /// Native Pi sessions, including child sessions stored beneath the session root.
-/// Only assistant usage is decoded; tool output and retained context are ignored.
+/// Assistant usage and `external-usage` custom entries are decoded; tool output
+/// and retained context are ignored.
 public struct PiProvider: TranscriptProvider {
     public let provider = Provider.pi
     private let home: URL
@@ -36,11 +37,25 @@ public struct PiProvider: TranscriptProvider {
                 state.projectPath = entry.cwd
                 return nil
             }
-            guard entry.type == "message", let message = entry.message,
-                  message.role == "assistant", message.stopReason != "pending",
-                  let usage = message.usage,
-                  let model = message.model, !model.isEmpty, model != "<synthetic>",
-                  let vendor = message.provider, !vendor.isEmpty,
+            // Two record shapes carry billable usage: native assistant messages, and
+            // `external-usage` custom entries written by the .rcs efficiency extension for
+            // model calls other extensions make outside the transcript (pi-condense
+            // summaries). Custom entries never enter the model context, so they are
+            // real spend that would otherwise be invisible here.
+            let source: (usage: Usage, model: String, vendor: String, kind: String)
+            if entry.type == "message", let message = entry.message {
+                guard message.role == "assistant", message.stopReason != "pending",
+                      let usage = message.usage, let model = message.model, let vendor = message.provider
+                else { return nil }
+                source = (usage, model, vendor, "message")
+            } else if entry.type == "custom", entry.customType == "external-usage", let data = entry.data {
+                guard let usage = data.usage, let model = data.model, let vendor = data.provider else { return nil }
+                source = (usage, model, vendor, "external-usage")
+            } else {
+                return nil
+            }
+            let (usage, model, vendor, kind) = source
+            guard !model.isEmpty, model != "<synthetic>", !vendor.isEmpty,
                   let id = entry.id, !id.isEmpty,
                   let stamp = entry.timestamp, let timestamp = TimestampParser.parse(stamp)
             else { return nil }
@@ -66,17 +81,25 @@ public struct PiProvider: TranscriptProvider {
                 timestamp: timestamp,
                 key: ModelKey(provider: .pi, model: qualifiedModel, fast: normalized.fast),
                 counts: counts,
-                dedupKey: fnv1a64("pi|\(id)|\(stamp)|\(vendor)|\(model)"),
+                dedupKey: fnv1a64("pi|\(kind)|\(id)|\(stamp)|\(vendor)|\(model)"),
                 projectPath: state.projectPath
             )
         }
 
         private struct Entry: Decodable {
             let type: String?
+            let customType: String?
             let id: String?
             let timestamp: String?
             let cwd: String?
             let message: Message?
+            let data: ExternalUsage?
+        }
+
+        private struct ExternalUsage: Decodable {
+            let provider: String?
+            let model: String?
+            let usage: Usage?
         }
 
         private struct Message: Decodable {

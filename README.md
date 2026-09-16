@@ -82,7 +82,7 @@ Models served locally cost nothing per token and are charted but not billed. The
 
 Pi assistant usage is read from `~/.pi/agent/sessions/`, including nested native child sessions. Forked copies are deduplicated by entry identity and timestamp. Input, cache reads, cache writes, and output are already separate lanes; reasoning is not added to output again. At display time, usage for the same model is combined across Pi and the CLIs, including fast/standard tiers; each source is still priced separately before summing.
 
-Only native assistant message records are counted. Compaction summaries, tool-result usage, external-agent artifact formats, and sessions outside this directory are not included. Costs are estimates: Pi does not retain cache TTL or priority-tier details in these usage records. Unknown vendors/models remain unpriced, not free.
+Native assistant message records are counted, plus `external-usage` custom entries: model calls that Pi extensions make outside the transcript (for example pi-condense's context summaries) are invisible to Pi's own usage, so the [.rcs](https://github.com/EricBriscoe/.rcs) efficiency extension records them as custom entries with the model and token lanes, and those are priced like any other Pi usage. Compaction summaries, tool-result usage, external-agent artifact formats, and sessions outside this directory are not included. Costs are estimates: Pi does not retain cache TTL or priority-tier details in these usage records. Unknown vendors/models remain unpriced, not free.
 
 ## History outlives the transcripts
 

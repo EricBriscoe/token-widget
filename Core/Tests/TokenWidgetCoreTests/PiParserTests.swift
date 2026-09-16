@@ -26,6 +26,28 @@ final class PiParserTests: XCTestCase {
         XCTAssertEqual(record.key.displayName, "gpt-6-astra")
     }
 
+    func testExternalUsageEntriesFromExtensionsAreCounted() throws {
+        // The .rcs efficiency extension records model calls made by other Pi extensions
+        // (pi-condense summaries) as custom entries; they never enter the model context.
+        let entry = """
+        {"type":"custom","customType":"external-usage","id":"ext00001","timestamp":"2026-09-16T15:00:00.000Z","data":{"source":"pi-condense","provider":"openai-codex","model":"gpt-5.6-luna","usage":{"input":900,"output":120,"cacheRead":0,"cacheWrite":0}}}
+        """
+        let record = try XCTUnwrap(parser().record(from: Data(entry.utf8)))
+        XCTAssertEqual(record.key, ModelKey(provider: .pi, model: "openai/gpt-5.6-luna"))
+        XCTAssertEqual(record.counts.input, 900)
+        XCTAssertEqual(record.counts.output, 120)
+        XCTAssertEqual(record.counts.thinking, 0)
+        XCTAssertEqual(record.counts.messages, 1)
+        let sameId = """
+        {"type":"message","id":"ext00001","timestamp":"2026-09-16T15:00:00.000Z","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.6-luna","usage":{"input":900,"output":120}}}
+        """
+        XCTAssertNotEqual(record.dedupKey, try XCTUnwrap(parser().record(from: Data(sameId.utf8))).dedupKey, "custom usage never collides with a real message")
+        let otherCustom = """
+        {"type":"custom","customType":"context-prune-stats","id":"ext00002","timestamp":"2026-09-16T15:00:00.000Z","data":{"totalInputTokens":72975,"totalOutputTokens":13762,"usage":{"input":1}}}
+        """
+        XCTAssertNil(parser().record(from: Data(otherCustom.utf8)), "other custom entries stay ignored")
+    }
+
     func testForkIdentityAndShortIDCollisions() throws {
         let original = try XCTUnwrap(parser().record(from: Data(line().utf8)))
         let copy = try XCTUnwrap(parser().record(from: Data(line().utf8)))
