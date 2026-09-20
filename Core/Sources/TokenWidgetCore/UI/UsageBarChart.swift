@@ -83,7 +83,11 @@ public struct UsageBarChart: View {
             .chartXAxis {
                 // Empty when labels are suppressed, which draws no marks.
                 AxisMarks(values: labelledBuckets) { value in
-                    AxisValueLabel { axisText(bucketLabel(for: value)) }
+                    // Numeric bucket indices mark bar centres, not intervals.
+                    // Automatic anchoring shifts labels toward the next bucket.
+                    AxisValueLabel(centered: false, anchor: .top) {
+                        axisText(bucketLabel(for: value))
+                    }
                 }
             }
         }
