@@ -266,7 +266,7 @@ private struct FooterNote: View {
             } else if entry.metric == .cost && entry.breakdown.hasApproximateCost {
                 Text("Estimated API cost")
             } else if let generatedAt = entry.generatedAt {
-                Text("Scanned \(generatedAt, style: .relative) ago")
+                Text("Updated \(generatedAt, style: .relative) ago")
             }
         }
         .font(.system(size: 9))

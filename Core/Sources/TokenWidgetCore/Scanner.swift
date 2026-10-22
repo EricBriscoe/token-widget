@@ -55,8 +55,35 @@ public final class UsageScanner {
 
     @discardableResult
     public func scan(progress: ((ScanProgress) -> Void)? = nil) throws -> UsageSnapshot {
-        let started = Date()
+        try scan(files: discoverFiles(), scanState: store.loadScanState(), started: Date(), progress: progress)
+    }
 
+    /// Returns nil, without reading or rewriting the stored history, when no
+    /// transcript changed since the pass that produced `current` and its model
+    /// classification still holds under these rates. Nearly every watcher and
+    /// timer pass ends here.
+    public func scan(
+        skippingUnchanged current: UsageSnapshot?,
+        progress: ((ScanProgress) -> Void)? = nil
+    ) throws -> UsageSnapshot? {
+        let started = Date()
+        let files = discoverFiles()
+        let scanState = store.loadScanState()
+        if let current,
+           files.count == scanState.files.count,
+           files.allSatisfy({ file in scanState.files[file.url.path].map(file.isUnchanged) ?? false }),
+           classifyModels(in: current.days) == (current.unpricedModels, current.approximateModels, current.localModels) {
+            return nil
+        }
+        return try scan(files: files, scanState: scanState, started: started, progress: progress)
+    }
+
+    private func scan(
+        files: [DiscoveredFile],
+        scanState loadedState: ScanState,
+        started: Date,
+        progress: ((ScanProgress) -> Void)?
+    ) throws -> UsageSnapshot {
         // Refuse to rebuild over history we could not read. Claude Code prunes
         // transcripts on its own retention schedule, so days recorded here are
         // often the only surviving record. Overwriting them with whatever is
@@ -71,7 +98,7 @@ public final class UsageScanner {
             throw ScanError.historyUnreadable(reason)
         }
 
-        var scanState = store.loadScanState()
+        var scanState = loadedState
         var dedup = store.loadDedupIndex()
         // Restores, imports, or missing checkpoints need a full transcript pass.
         // Merge those totals with retained history after scanning so overlapping
@@ -83,7 +110,6 @@ public final class UsageScanner {
         }
         var aggregator = UsageAggregator(resuming: rebuilding ? [] : previous?.days ?? [], calendar: calendar)
 
-        let files = discoverFiles()
         var processed = 0
         var newRecords = 0
         var bytesRead: Int64 = 0
@@ -103,12 +129,7 @@ public final class UsageScanner {
             let existing = scanState.files[path]
 
             // Untouched since the last pass: nothing to read.
-            if let existing,
-               existing.size == file.size,
-               existing.inode == file.inode,
-               abs(existing.modified.timeIntervalSince(file.modified)) < 0.001 {
-                continue
-            }
+            if let existing, file.isUnchanged(since: existing) { continue }
 
             // Resume mid-file only when it is the same file, grown in place.
             var startOffset: Int64 = 0
@@ -189,23 +210,33 @@ public final class UsageScanner {
         let size: Int64
         let modified: Date
         let inode: UInt64
+
+        func isUnchanged(since state: FileScanState) -> Bool {
+            state.size == size && state.inode == inode && abs(state.modified.timeIntervalSince(modified)) < 0.001
+        }
     }
 
     private func discoverFiles() -> [DiscoveredFile] {
         var found: [DiscoveredFile] = []
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .fileResourceIdentifierKey, .isRegularFileKey]
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .fileIdentifierKey, .isRegularFileKey, .isDirectoryKey]
 
         for provider in providers {
+            let skipped = provider.skippedDirectories
             for root in provider.presentRoots {
                 guard let enumerator = FileManager.default.enumerator(
                     at: root,
-                    includingPropertiesForKeys: keys,
+                    includingPropertiesForKeys: Array(keys),
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]
                 ) else { continue }
 
                 for case let url as URL in enumerator {
+                    if skipped.contains(url.lastPathComponent),
+                       (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                        enumerator.skipDescendants()
+                        continue
+                    }
                     guard url.pathExtension == "jsonl" else { continue }
-                    guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                    guard let values = try? url.resourceValues(forKeys: keys),
                           values.isRegularFile == true,
                           let size = values.fileSize,
                           let modified = values.contentModificationDate
@@ -216,18 +247,12 @@ public final class UsageScanner {
                         provider: provider,
                         size: Int64(size),
                         modified: modified,
-                        inode: inode(of: url)
+                        inode: values.fileIdentifier ?? 0
                     ))
                 }
             }
         }
         return found
-    }
-
-    private func inode(of url: URL) -> UInt64 {
-        var statInfo = stat()
-        guard stat(url.path, &statInfo) == 0 else { return 0 }
-        return UInt64(statInfo.st_ino)
     }
 
     // MARK: - Line reading

@@ -8,19 +8,19 @@ import WidgetKit
 
 @MainActor
 final class UsageStore: ObservableObject {
-    @Published private(set) var snapshot: UsageSnapshot?
+    @Published private(set) var snapshot: UsageSnapshot? { didSet { cachedBreakdown = nil } }
     @Published private(set) var palette = ChartPalette(models: [])
     @Published private(set) var isScanning = false
     @Published private(set) var progress: ScanProgress?
     @Published private(set) var lastError: String?
 
     @Published var range: RangeKind = .week { didSet { offset = 0 } }
-    @Published var metric: Metric = .cost
-    @Published var offset: Int = 0
+    @Published var metric: Metric = .cost { didSet { cachedBreakdown = nil } }
+    @Published var offset: Int = 0 { didSet { cachedBreakdown = nil } }
 
     /// Rates in force. Starts from whatever is cached on disk so the first paint
     /// is priced, then gets rebuilt when the day's refresh lands.
-    @Published private(set) var priceBook: PriceBook = .shared
+    @Published private(set) var priceBook: PriceBook = .shared { didSet { cachedBreakdown = nil } }
     @Published private(set) var pricesFetchedAt: Date? = OpenRouterPriceService().cached()?.fetchedAt
 
     private let store = SharedStore()
@@ -28,14 +28,20 @@ final class UsageStore: ObservableObject {
     private let providers: [TranscriptProvider] = [ClaudeCodeProvider(), CodexProvider(), PiProvider()]
     private var widgetReloadPolicy = WidgetReloadPolicy()
     private var watcher: DirectoryWatcher?
+    private var watchedRoots: [URL] = []
     private var refreshTimer: Timer?
     /// Set while a scan is running so filesystem churn during the scan queues
     /// exactly one follow-up rather than a scan per event.
     private var rescanQueued = false
+    private var cachedBreakdown: PeriodBreakdown?
 
+    /// Cached because the dashboard reads it many times per render.
     var breakdown: PeriodBreakdown {
-        UsageQuery(snapshot: snapshot ?? UsageSnapshot(), priceBook: priceBook)
+        if let cachedBreakdown { return cachedBreakdown }
+        let breakdown = UsageQuery(snapshot: snapshot ?? UsageSnapshot(), priceBook: priceBook)
             .breakdown(range, offset: offset, metric: metric)
+        cachedBreakdown = breakdown
+        return breakdown
     }
 
     var pricedModelCount: Int { priceBook.catalogModelCount }
@@ -50,14 +56,17 @@ final class UsageStore: ObservableObject {
         startWatching()
         rescan()
         refreshPrices()
-        // Reconcile periodically when a filesystem writer misses FSEvents.
-        // Unchanged transcripts are skipped by the incremental scanner.
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // Reconcile periodically in case FSEvents missed a write, and start
+        // watching a provider installed after launch. With nothing changed a
+        // pass costs one directory walk and writes nothing.
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 10 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.startWatching()
                 self?.rescan()
                 self?.refreshPrices()
             }
         }
+        refreshTimer?.tolerance = 60
     }
 
     /// Pulls published rates from OpenRouter, at most once a day.
@@ -66,6 +75,9 @@ final class UsageStore: ObservableObject {
     /// cached rates immediately, and only rescans if the fetch changed
     /// something. A failed fetch leaves the cache in place.
     func refreshPrices(force: Bool = false) {
+        // Checked in memory so the periodic pass does not decode the cached
+        // price list only to learn it is still fresh.
+        if !force, let pricesFetchedAt, Date().timeIntervalSince(pricesFetchedAt) < PriceCatalog.maxAge { return }
         let service = prices
         Task { [weak self] in
             guard let catalog = await service.refreshIfNeeded(force: force) else { return }
@@ -91,9 +103,15 @@ final class UsageStore: ObservableObject {
         lastError = nil
 
         let scanner = UsageScanner(providers: providers, store: store, priceBook: priceBook)
+        let current = snapshot
         Task.detached(priority: .utility) { [weak self] in
+            // Throttled: the scanner reports once per transcript, and every
+            // update re-renders the menu and the dashboard.
+            var lastReported = Date.distantPast
             do {
-                let result = try scanner.scan { update in
+                let result = try scanner.scan(skippingUnchanged: current) { update in
+                    guard Date().timeIntervalSince(lastReported) > 0.25 else { return }
+                    lastReported = Date()
                     Task { @MainActor [weak self] in self?.progress = update }
                 }
                 await self?.finish(with: result, error: nil)
@@ -107,13 +125,16 @@ final class UsageStore: ObservableObject {
         isScanning = false
         progress = nil
         lastError = error
+        // The window on screen is relative to today, which may have changed.
+        cachedBreakdown = nil
 
         if let result {
             snapshot = result
             palette = ChartPalette(snapshot: result)
-            if widgetReloadPolicy.shouldReload(snapshot: result, pricesFetchedAt: pricesFetchedAt) {
-                WidgetCenter.shared.reloadAllTimelines()
-            }
+        }
+        // Checked on unchanged passes too, so the widget still rolls over at midnight.
+        if let snapshot, widgetReloadPolicy.shouldReload(snapshot: snapshot, pricesFetchedAt: pricesFetchedAt) {
+            WidgetCenter.shared.reloadAllTimelines()
         }
 
         if rescanQueued {
@@ -122,8 +143,13 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Watches only roots that exist. Watching a missing root's nearest
+    /// ancestor could mean the whole home folder; the periodic pass calls this
+    /// again so a provider installed later is picked up.
     private func startWatching() {
-        let roots = providers.flatMap(\.roots)
+        let roots = providers.flatMap(\.presentRoots)
+        guard roots != watchedRoots else { return }
+        watchedRoots = roots
         watcher = DirectoryWatcher(paths: roots) { [weak self] in
             Task { @MainActor [weak self] in self?.rescan() }
         }

@@ -147,6 +147,45 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(lastProgress?.newRecords, 0)
     }
 
+    func testUnchangedPassSkipsTheStore() throws {
+        try write(line(request: "a") + "\n", to: "live.jsonl")
+        let scanner = makeScanner()
+        XCTAssertNotNil(try scanner.scan(skippingUnchanged: nil))
+        let current = try XCTUnwrap(store.loadSnapshot())
+        let snapshotURL = storeDirectory.appendingPathComponent("snapshot.json")
+        let written = try snapshotURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+
+        XCTAssertNil(try scanner.scan(skippingUnchanged: current))
+        Thread.sleep(forTimeInterval: 1.1)
+        XCTAssertNil(try scanner.scan(skippingUnchanged: current))
+        XCTAssertEqual(try snapshotURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, written)
+
+        // Rates that classify a model differently still need a pass.
+        var stale = current
+        stale.unpricedModels = ["claude-opus-5"]
+        XCTAssertEqual(try scanner.scan(skippingUnchanged: stale)?.totalMessages, 1)
+
+        try append(line(request: "b") + "\n", to: "live.jsonl")
+        XCTAssertEqual(try scanner.scan(skippingUnchanged: current)?.totalMessages, 2)
+    }
+
+    func testDiscoverySkipsPiSubagentOutputs() throws {
+        let artifacts = home.appendingPathComponent(".pi/agent/sessions/project/subagent-artifacts")
+        let outputs = artifacts.appendingPathComponent("outputs/run")
+        try FileManager.default.createDirectory(at: outputs, withIntermediateDirectories: true)
+        let entry = #"{"type":"message","id":"ID","timestamp":"2026-09-07T12:00:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-5","usage":{"output":10}}}"#
+        try (entry.replacingOccurrences(of: "ID", with: "kept") + "\n")
+            .write(to: artifacts.appendingPathComponent("worker_transcript.jsonl"), atomically: true, encoding: .utf8)
+        try (entry.replacingOccurrences(of: "ID", with: "skipped") + "\n")
+            .write(to: outputs.appendingPathComponent("copied.jsonl"), atomically: true, encoding: .utf8)
+
+        let scanner = UsageScanner(providers: [PiProvider(home: home)], store: store, calendar: utc, priceBook: .builtIn)
+        let snapshot = try scanner.scan()
+
+        XCTAssertEqual(snapshot.filesScanned, 1)
+        XCTAssertEqual(snapshot.totalMessages, 1)
+    }
+
     /// A transcript being written to right now usually ends mid-line. Parsing
     /// that fragment would drop the message; the scanner must wait for the
     /// newline and pick it up on the next pass.

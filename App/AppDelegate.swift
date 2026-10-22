@@ -76,8 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         // After the close finishes; flipping mid-close hides the app from
-        // Cmd-Tab while its window is still on screen.
+        // Cmd-Tab while its window is still on screen. Dropping the window
+        // tears down its SwiftUI view, which would otherwise keep re-rendering
+        // off screen on every store change.
         DispatchQueue.main.async {
+            self.dashboard = nil
             NSApp.setActivationPolicy(.accessory)
         }
     }

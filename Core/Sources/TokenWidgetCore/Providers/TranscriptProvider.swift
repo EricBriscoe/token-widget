@@ -5,6 +5,9 @@ public protocol TranscriptProvider: Sendable {
     var provider: Provider { get }
     /// Directories to walk for `.jsonl` files.
     var roots: [URL] { get }
+    /// Names of directories under a root that never hold transcripts, so file
+    /// discovery does not descend into them.
+    var skippedDirectories: Set<String> { get }
     /// One parser per file. Some formats (Codex) state the model on a different
     /// line from the token counts, so parsing needs a place to keep state.
     func makeParser(file: URL, resuming state: ParserState?) -> TranscriptLineParser
@@ -31,6 +34,8 @@ public protocol TranscriptLineParser: AnyObject {
 }
 
 extension TranscriptProvider {
+    public var skippedDirectories: Set<String> { [] }
+
     /// Roots present on this machine.
     public var presentRoots: [URL] {
         roots.filter { url in

@@ -15,6 +15,11 @@ public struct PiProvider: TranscriptProvider {
         [home.appendingPathComponent(".pi/agent/sessions", isDirectory: true)]
     }
 
+    /// `subagent-artifacts/outputs` holds whatever subagents produced, which can
+    /// be a whole Python environment of tens of thousands of files. Their
+    /// transcripts sit one level up.
+    public var skippedDirectories: Set<String> { ["outputs"] }
+
     public func makeParser(file: URL, resuming state: ParserState?) -> TranscriptLineParser {
         Parser(state: state ?? ParserState())
     }

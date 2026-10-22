@@ -1,28 +1,20 @@
 import CoreServices
 import Foundation
 
-/// Watches transcript directories recursively and fires when anything changes.
+/// Watches transcript directories recursively and fires when a transcript changes.
 ///
-/// FSEvents rather than a poll loop: Claude Code appends to a transcript on
-/// every assistant message, and the two-second coalescing latency turns a busy
-/// session's write storm into one rescan.
+/// FSEvents rather than a poll loop. Agents append to a transcript on every
+/// message, and the 30-second coalescing latency turns a busy session's write
+/// storm into one rescan per window. Events for anything but a `.jsonl` file
+/// are ignored, since tool output and subagent artifacts churn beside the
+/// transcripts.
 final class DirectoryWatcher {
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "dev.ericbriscoe.tokenwidget.fsevents")
     private let onChange: () -> Void
-    private let requestedPaths: [String]
 
-    init?(paths: [URL], latency: CFTimeInterval = 2.0, onChange: @escaping () -> Void) {
+    init?(paths: [URL], latency: CFTimeInterval = 30, onChange: @escaping () -> Void) {
         guard !paths.isEmpty else { return nil }
-        requestedPaths = paths.map { $0.standardizedFileURL.resolvingSymlinksInPath().path }
-        // Watch an existing ancestor so a provider's first session is noticed.
-        let existing = Set(paths.map { requested -> String in
-            var ancestor = requested.standardizedFileURL.resolvingSymlinksInPath()
-            while !FileManager.default.fileExists(atPath: ancestor.path), ancestor.path != "/" {
-                ancestor.deleteLastPathComponent()
-            }
-            return ancestor.path
-        })
         self.onChange = onChange
 
         var context = FSEventStreamContext(
@@ -40,11 +32,7 @@ final class DirectoryWatcher {
             let dropped = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs
                 | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
             let needsScan = (0..<count).contains { index in
-                if flags[index] & dropped != 0 { return true }
-                let path = URL(fileURLWithPath: changed[index]).resolvingSymlinksInPath().path
-                return watcher.requestedPaths.contains { root in
-                    path == root || path.hasPrefix(root + "/") || root.hasPrefix(path + "/")
-                }
+                flags[index] & dropped != 0 || changed[index].hasSuffix(".jsonl")
             }
             if needsScan { watcher.onChange() }
         }
@@ -53,10 +41,10 @@ final class DirectoryWatcher {
             kCFAllocatorDefault,
             callback,
             &context,
-            Array(existing) as CFArray,
+            paths.map { $0.standardizedFileURL.resolvingSymlinksInPath().path } as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             latency,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         ) else { return nil }
 
         self.stream = stream
@@ -74,5 +62,7 @@ final class DirectoryWatcher {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
+        // The callback holds an unretained pointer; let one already running finish.
+        queue.sync {}
     }
 }

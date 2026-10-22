@@ -31,7 +31,7 @@ Four ranges are available, each bucketed so the bar count stays readable: week b
 
 The widget shows cost or tokens. The token count is `output_tokens` only, what the model generated; cost prices every lane: input, cache writes, cache reads, and output.
 
-The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. A one-minute incremental rescan catches writes missed by filesystem notifications. Widget reload requests are coalesced to at most once per 15 minutes when usage or prices change; macOS controls the actual refresh timing. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
+The app runs as a menu bar item (bar-chart icon) with no Dock presence. Launching it from Finder or Spotlight opens the dashboard; closing the dashboard leaves the scanner running. Transcript writes are picked up through filesystem notifications, batched into at most one rescan every 30 seconds, and a ten-minute pass catches anything those miss. A pass that finds no changed transcript writes nothing. Widget reload requests are coalesced to at most once per 15 minutes when usage or prices change; macOS controls the actual refresh timing. Tick "Open at login" so it comes back after a restart, and untick "Show the menu bar icon" in the dashboard if you want nothing visible at all. The widget is sandboxed and only reads the aggregated snapshot, so it shows whatever the app last recorded.
 
 ## Where the numbers come from
 
